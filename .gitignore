@@ -1,0 +1,28 @@
+# dependencies
+node_modules/
+
+# personal / machine-specific hardening helper — NOT part of the reusable plugin
+scripts/harden-opencode-v1.jq
+
+# local-only agent guardrails (private to this checkout, never publish)
+AGENTS.md
+
+# audit logs (never commit)
+approval-reviewer-audit.jsonl
+permission-reviewer-audit.jsonl
+*-audit.jsonl
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.log
+
+# reference clones (e.g. codex) if placed inside the worktree
+/codex

@@ -1,0 +1,48 @@
+# Contributing
+
+Thanks for considering a contribution. This plugin makes automated safety
+decisions, so changes need to be deliberate and well-tested.
+
+## Setup
+
+```bash
+git clone https://github.com/Warc0s/opencode-permission-reviewer.git
+cd opencode-permission-reviewer
+bun install
+bun run check   # typecheck + tests — must pass before any push
+```
+
+## Before you open a PR
+
+1. **`bun run check` is green** (typecheck + full test suite, including the
+   stress suite). Do not disable tests to make this pass.
+2. **No personal data or secrets in code or tests.** Use clearly-synthetic
+   fixtures (e.g. `sk-syntheticcredential...`, documentation IP ranges
+   `192.0.2.x` / `203.0.113.x` / `198.51.100.x`, `*.invalid` hostnames). Never
+   commit real tokens, keys, personal filesystem paths, or internal codenames.
+3. **Safety changes need tests.** Any change to `decision.ts`, `policy.ts`,
+   `emergency-brake.ts`, or the runtime enforcement path must include tests
+   that demonstrate the invariant (e.g. critical risk can never be approved).
+4. **Keep behavior changes backward-compatible** unless you're intentionally
+   bumping a version pin or an enforcement invariant, and say so in the PR.
+5. **Keep user-facing strings in English.** The policy and reviewer prompts are
+   English; runtime/UI messages should be too so the plugin is usable globally.
+
+## Areas that need care
+
+- `src/decision.ts` / `src/policy.ts` / `src/emergency-brake.ts` — these encode
+  safety invariants. Document the reasoning for any change.
+- `src/index.ts` reaches into OpenCode's authenticated SDK transport; changes
+  there must keep the graceful "refusing unsafe partial startup" behavior.
+- The reviewer runs **tool-free**; never add tool access to reviewer sessions.
+
+## Live (end-to-end) testing
+
+`tests/live-harness.ts` runs against a real OpenCode server and model and is
+**not** part of `bun test`. Run it manually only when you have a local server
+and a configured reviewer model:
+
+```bash
+opencode serve &   # then point the harness at it
+bun run tests/live-harness.ts http://127.0.0.1:41973 --smoke
+```

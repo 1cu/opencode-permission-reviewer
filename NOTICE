@@ -1,0 +1,17 @@
+OpenCode Permission Reviewer
+
+The reviewer policy and prompt text in src/policy.ts are adapted from the
+OpenAI Codex Guardian auto-review policy and policy template:
+
+  https://github.com/openai/codex/tree/main/codex-rs/core/src/guardian
+
+Parts of that policy are paraphrased or reproduced with edits; the taxonomy,
+the risk/authorization ladders, and several definitions derive from it. This
+adaptation adds OpenCode permission semantics, a human-escalation outcome,
+confidence scoring, tool-free operation, and SSH / local-script / Git evidence
+enrichment.
+
+The Codex source is Copyright OpenAI and contributors and is licensed under the
+Apache License, Version 2.0; this attribution is retained as required by that
+license. Changes specific to OpenCode are licensed under the Apache License,
+Version 2.0 (see ./LICENSE).
