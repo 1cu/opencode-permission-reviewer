@@ -10,7 +10,7 @@ import type {
 } from "./types.ts"
 import { buildEvidence, buildIntentHistory, buildTranscript, normalizeMessages } from "./context.ts"
 import { DECISION_SCHEMA, enforceDecision, parseDecision } from "./decision.ts"
-import { DEFAULT_TENANT_POLICY, buildReviewerPrompt } from "./policy.ts"
+import { DEFAULT_TENANT_POLICY, REVIEWER_SYSTEM_PROMPT, buildReviewerPrompt } from "./policy.ts"
 import { emergencyBrakeReason } from "./emergency-brake.ts"
 import { splitModel } from "./config.ts"
 import { createUiStatus, type ReviewUiStatus } from "./ui-protocol.ts"
@@ -452,7 +452,10 @@ export class ApprovalReviewerRuntime {
             model: { providerID, modelID },
             variant: this.config.variant,
             tools,
-            system: "You are a tool-free automatic permission reviewer. Follow the supplied review policy exactly.",
+            // The role, safety rules, and anti-prompt-injection guidance live
+            // in the system prompt so they carry system-level priority over the
+            // untrusted evidence passed in the part below.
+            system: REVIEWER_SYSTEM_PROMPT,
             format: {
               type: "json_schema",
               schema: DECISION_SCHEMA,

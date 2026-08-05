@@ -41,8 +41,8 @@ const RULES: ReadonlyArray<{ re: RegExp; replace: (match: string, groups: string
   },
   // AWS access key id.
   { re: /\bAKIA[0-9A-Z]{16}\b/g, replace: () => REDACT("aws") },
-  // GitHub tokens.
-  { re: /\b(?:ghp|gho|ghs|ghr)_[A-Za-z0-9]{36,251}\b/g, replace: () => REDACT("github") },
+  // GitHub tokens (ghu_ covers user-to-server OAuth tokens).
+  { re: /\b(?:ghp|gho|ghs|ghr|ghu)_[A-Za-z0-9]{36,251}\b/g, replace: () => REDACT("github") },
   { re: /\bgithub_pat_[A-Za-z0-9_]{22,251}\b/g, replace: () => REDACT("github") },
   // OpenAI: project keys and long bare `sk-…` keys (excludes Anthropic).
   { re: /\bsk-proj-[A-Za-z0-9_-]{20,}\b/g, replace: () => REDACT("openai") },
@@ -70,8 +70,9 @@ const RULES: ReadonlyArray<{ re: RegExp; replace: (match: string, groups: string
     replace: (_m, g) => `${g[0] ?? ""}${REDACT("userinfo")}@`,
   },
   // Auth-scheme prefixes (Bearer / Basic / Token) followed by a token.
+  // Case-insensitive so lowercase "bearer", "basic", "token" are caught too.
   {
-    re: /\b(Bearer|Basic|Token)\s+(?!\[REDACTED)[A-Za-z0-9._~+/-=]{8,}/g,
+    re: /\b(Bearer|Basic|Token)\s+(?!\[REDACTED)[A-Za-z0-9._~+/-=]{8,}/gi,
     replace: (_m, g) => {
       const scheme = g[0] ?? ""
       return `${scheme} ${REDACT(scheme.toLowerCase())}`

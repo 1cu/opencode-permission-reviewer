@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { DEFAULT_CONFIG } from "../src/config.ts"
 import { buildEvidence, buildTranscript, normalizeMessages } from "../src/context.ts"
+import { buildReviewerPrompt, DEFAULT_TENANT_POLICY } from "../src/policy.ts"
 import { redactSecrets } from "../src/redact.ts"
 import { request } from "./helpers.ts"
 
@@ -10,6 +11,7 @@ import { request } from "./helpers.ts"
 // the body defeats that without weakening the assertion.
 const AWS_EX = "AKIA" + "IOSFODNN7EXAMPLE"
 const GHP = "ghp_" + "syntheticGitHubToken01234567890abcdefghijklmnopqrstuv"
+const GHU = "ghu_" + "syntheticGitHubUserToken01234567890abcdefghijklmnopqr"
 const GH_FINE = "github_" + "pat_synthetictoken1234567890abcdef"
 const OAI_PROJ = "sk-" + "proj-synthetictoken1234567890abcdef"
 const OAI = "sk-" + "synthetictoken1234567890ABCDEF1234567890"
@@ -32,6 +34,7 @@ describe("redactSecrets — credential formats", () => {
   test.each([
     ["AWS access key id", `env ${AWS_EX} here`, AWS_EX],
     ["GitHub PAT", GHP, "ghp_"],
+    ["GitHub user-to-server token", GHU, "ghu_"],
     ["GitHub fine-grained", GH_FINE, "github_pat_"],
     ["OpenAI project key", OAI_PROJ, OAI_FRAG],
     ["OpenAI bare key", OAI, OAI_FRAG],
@@ -71,6 +74,17 @@ describe("redactSecrets — credential formats", () => {
     expect(redactSecrets(`Authorization: Bearer ${OAI}`)).toContain("Bearer [REDACTED:openai]")
     expect(redactSecrets("Authorization: Basic dXNlcjpwYXNzMTIzNDU2Nzg=")).toContain("Basic [REDACTED:basic]")
     expect(redactSecrets("Token: abcdefgh1234567890")).toContain("[REDACTED:credential]")
+  })
+
+  test("redacts lowercase auth schemes (bearer / basic / token)", () => {
+    // Case-insensitive flag: lowercase scheme prefixes must also be scrubbed.
+    const opaque = "abcdefghij1234567890"
+    expect(redactSecrets(`bearer ${opaque}`)).toContain("[REDACTED:bearer]")
+    expect(redactSecrets(`bearer ${opaque}`)).not.toContain(opaque)
+    expect(redactSecrets(`authorization: bearer ${opaque}`)).not.toContain(opaque)
+    expect(redactSecrets("authorization: basic dXNlcjpwYXNzMTIzNDU2Nzg=")).not.toContain("dXNlcjpwYXNz")
+    expect(redactSecrets(`token ${opaque}`)).toContain("[REDACTED:token]")
+    expect(redactSecrets(`token ${opaque}`)).not.toContain(opaque)
   })
 
   test("redacts Cookie / Set-Cookie headers", () => {
@@ -231,5 +245,24 @@ describe("evidence redaction through buildEvidence", () => {
     expect(evidence).not.toContain("wJalrXUt")
     expect(evidence).toContain("[REDACTED:openai]")
     expect(evidence).toContain("[REDACTED:credential]")
+  })
+})
+
+describe("tenant policy redaction", () => {
+  test("buildReviewerPrompt redacts a credential accidentally placed in the tenant policy", () => {
+    const opaque = "abcdefghij1234567890"
+    const maliciousPolicy = `## Notes\nCall bearer ${opaque} if you need auth.`
+    const prompt = buildReviewerPrompt(maliciousPolicy, "harmless evidence")
+    expect(prompt).not.toContain(opaque)
+    expect(prompt).toContain("[REDACTED:bearer]")
+    // The evidence and structure are preserved.
+    expect(prompt).toContain("<approval_evidence>")
+    expect(prompt).toContain("harmless evidence")
+  })
+
+  test("the default tenant policy is unaffected by redaction", () => {
+    // The default policy mentions secrets/credentials in prose but contains no
+    // literal credential assignment, so redaction must be a no-op on it.
+    expect(redactSecrets(DEFAULT_TENANT_POLICY)).toBe(DEFAULT_TENANT_POLICY)
   })
 })

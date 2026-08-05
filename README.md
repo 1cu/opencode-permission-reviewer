@@ -259,8 +259,8 @@ binary, blocked, or truncated evidence) remains a reviewer decision.
   actions with unknown authorization, are deterministically escalated** — the
   model cannot auto-approve them by labeling a contradictory combination.
 - Invalid, low-confidence, or inconsistent output is escalated to the user.
-- **Secrets in the evidence are always redacted** before reaching the reviewer,
-  so credentials never leak to the reviewer's provider.
+- **Common credential formats are always redacted** from the evidence before
+  reaching the reviewer, so credentials never leak to the reviewer's provider.
 - Reviewer sessions cannot request permissions recursively; all reviewer tools
   are explicitly disabled.
 - A narrow deterministic emergency brake rejects unmistakable root destruction
