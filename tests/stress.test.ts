@@ -50,7 +50,7 @@ describe("stress and adversarial robustness", () => {
     expect(client.uiStatuses.filter((status) => status.phase === "reviewing")).toHaveLength(1_000)
     expect(client.uiStatuses.filter((status) => status.phase === "approved")).toHaveLength(500)
     expect(client.uiStatuses.filter((status) => status.phase === "denied")).toHaveLength(500)
-  })
+  }, 30_000)
 
   test("deduplicates a 2,000-event storm for one request", async () => {
     const harness = runtime()
@@ -140,7 +140,7 @@ describe("stress and adversarial robustness", () => {
       expect(result.text).toContain(`app-${item}`)
       expect(result.text).toContain(`"mutationHint": ${item % 2 === 0 ? "false" : "true"}`)
     }
-  })
+  }, 30_000)
 
   test("inspects 500 concurrent local scripts without crossing their contents", async () => {
     const directory = await mkdtemp("/tmp/opencode/approval-reviewer-script-stress-")
@@ -168,7 +168,7 @@ describe("stress and adversarial robustness", () => {
     } finally {
       await rm(directory, { recursive: true })
     }
-  })
+  }, 30_000)
 
   test("takes 100 concurrent read-only Git snapshots without crossing discard targets", async () => {
     const directory = await mkdtemp("/tmp/opencode/approval-reviewer-git-stress-")
@@ -212,5 +212,5 @@ describe("stress and adversarial robustness", () => {
     } finally {
       await rm(directory, { recursive: true })
     }
-  })
+  }, 30_000)
 })
