@@ -30,11 +30,13 @@ const RULES: ReadonlyArray<{ re: RegExp; replace: (match: string, groups: string
     re: /-----BEGIN (?:[A-Z ]*PRIVATE KEY)-----[\s\S]{0,8192}?-----END (?:[A-Z ]*PRIVATE KEY)-----/g,
     replace: () => REDACT("pem"),
   },
-  // Truncated PEM (BEGIN with no matching END within a bounded window): redact
-  // the leading window so a credential whose END was chopped by an upstream
-  // truncation cannot leak.
+  // Truncated PEM (BEGIN with no matching END within the complete-block
+  // window above): redact from the BEGIN marker to the end of the string so a
+  // long private key whose END was chopped by an upstream truncation cannot
+  // leak its tail. The `*` quantifier is a single greedy linear scan (no
+  // alternation), so it is safe from pathological backtracking.
   {
-    re: /-----BEGIN (?:[A-Z ]*PRIVATE KEY)-----[\s\S]{0,4096}/g,
+    re: /-----BEGIN (?:[A-Z ]*PRIVATE KEY)-----[\s\S]*/g,
     replace: () => REDACT("pem"),
   },
   // AWS access key id.
@@ -88,13 +90,17 @@ const RULES: ReadonlyArray<{ re: RegExp; replace: (match: string, groups: string
   // Generic credential assignments (covers compound env names like DB_PASSWORD,
   // AWS_SECRET_ACCESS_KEY, GITHUB_TOKEN via the underscore-tolerant prefix).
   // First, compound variable names whose identifier contains a credential word.
+  // Case-insensitive so lowercase forms (ssh_private_key, passphrase,
+  // service_credentials) are caught alongside their UPPER_CASE counterparts.
   {
-    re: /(^|[^A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]*(?:SECRET|PASSWORD|TOKEN|API_KEY|ACCESS_KEY|PRIVATE_KEY|CLIENT_SECRET|PASSPHRASE)[A-Za-z0-9_]*)(\s*[:=]\s*)(["']?)(?!\[REDACTED)([^$`{}()\s"'#[\]]{8,})(["']?)/g,
+    re: /(^|[^A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]*(?:SECRET|PASSWORD|TOKEN|API_KEY|ACCESS_KEY|PRIVATE_KEY|CLIENT_SECRET|PASSPHRASE|CREDENTIALS?)[A-Za-z0-9_]*)(\s*[:=]\s*)(["']?)(?!\[REDACTED)([^$`{}()\s"'#[\]]{8,})(["']?)/gi,
     replace: (_m, g) => `${g[0] ?? ""}${g[1] ?? ""}${g[2] ?? ""}${g[3] ?? ""}${REDACT("credential")}${g[5] ?? ""}`,
   },
-  // Then lowercase credential keywords as standalone-ish keys.
+  // Then lowercase credential keywords as standalone-ish keys (also catches the
+  // bare forms private_key / passphrase / credential that the compound rule
+  // above misses because it requires a leading identifier).
   {
-    re: /(^|_|[^A-Za-z0-9_])(api[_-]?key|access[_-]?token|secret[_-]?key|client[_-]?secret|secret|password|passwd|token|cookie|csrf[_-]?token|session[_-]?id|sessionid|session|sid)(["']?\s*[:=]\s*["']?)(?!\[REDACTED)([^$`{}()\s"'#[\]]{8,})/gi,
+    re: /(^|_|[^A-Za-z0-9_])(api[_-]?key|access[_-]?token|secret[_-]?key|client[_-]?secret|secret|password|passwd|token|cookie|csrf[_-]?token|session[_-]?id|sessionid|session|sid|private[_-]?key|passphrase|credentials?)(["']?\s*[:=]\s*["']?)(?!\[REDACTED)([^$`{}()\s"'#[\]]{8,})/gi,
     replace: (_m, g) => `${g[0] ?? ""}${g[1] ?? ""}${g[2] ?? ""}${REDACT("credential")}`,
   },
 ]

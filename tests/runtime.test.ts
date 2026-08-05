@@ -439,6 +439,51 @@ describe("runtime decisions", () => {
     expect(result.kind).toBe("escalate")
     expect(client.uiStatuses.map((s) => s.phase)).not.toContain("manual")
   })
+
+  test("a manual reply during transcript collection skips the model call entirely", async () => {
+    const client = new MockClient()
+    const msgResolvers: Array<(value: { data?: unknown; error?: unknown }) => void> = []
+    client.messagesImpl = () =>
+      new Promise((resolve) => {
+        msgResolvers.push(resolve)
+      })
+    const harness = runtime(client)
+    harness.runtime.handle(request())
+    await new Promise((r) => setTimeout(r, 5))
+    // The human answers while the transcript fetch is still pending.
+    harness.runtime.handlePermissionReply({
+      type: "permission.replied",
+      properties: { sessionID: "ses_main", requestID: "per_1", reply: "reject" },
+    })
+    for (const resolve of msgResolvers) resolve({ data: client.messageData })
+    await harness.runtime.waitForIdle()
+    // No reviewer session, no model call, no reply; the request stays as reviewing.
+    expect(client.creates).toHaveLength(0)
+    expect(client.prompts).toHaveLength(0)
+    expect(client.replies).toHaveLength(0)
+    expect(client.uiStatuses.map((s) => s.phase)).toEqual(["reviewing"])
+  })
+
+  test("a transcript failure after a manual reply does not resurrect the manual phase", async () => {
+    const client = new MockClient()
+    const msgResolvers: Array<(value: { data?: unknown; error?: unknown }) => void> = []
+    client.messagesImpl = () =>
+      new Promise((resolve) => {
+        msgResolvers.push(resolve)
+      })
+    const harness = runtime(client)
+    harness.runtime.handle(request())
+    await new Promise((r) => setTimeout(r, 5))
+    harness.runtime.handlePermissionReply({
+      type: "permission.replied",
+      properties: { sessionID: "ses_main", requestID: "per_1", reply: "reject" },
+    })
+    // Now the transcript fetch fails; the error path must NOT re-emit "manual".
+    for (const resolve of msgResolvers) resolve({ error: { message: "database unavailable" } })
+    await harness.runtime.waitForIdle()
+    expect(client.replies).toHaveLength(0)
+    expect(client.uiStatuses.map((s) => s.phase)).toEqual(["reviewing"])
+  })
 })
 
 describe("event boundary", () => {

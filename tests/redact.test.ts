@@ -19,6 +19,14 @@ const SLACK = "xox" + "b-synthetic-slack-token-1234567890"
 const JWT = "ey" + "JhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.signatureabcdefg"
 const GLPAT = "gl" + "pat-syntheticgitlabtoken1234"
 const NVAPI = "nv" + "api-syntheticnvidiatoken1234abcd"
+const AWS_SECRET_VAL = "wJalrXUt" + "nFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+const AWS_SECRET_LINE = "AWS_SECRET_ACCESS_KEY=" + AWS_SECRET_VAL
+const TELEGRAM = "123456789:" + "AAH-synthetic-telegram-bot-token-12345"
+const PEM_BEGIN_RSA = "-----BEGIN RSA " + "PRIVATE KEY-----"
+const PEM_END_RSA = "-----END RSA " + "PRIVATE KEY-----"
+const PEM_BEGIN = "-----BEGIN " + "PRIVATE KEY-----"
+const PEM_END = "-----END " + "PRIVATE KEY-----"
+const PEM_BODY = "MIIEp" + "AIBAAKCAQEA"
 
 describe("redactSecrets — credential formats", () => {
   test.each([
@@ -46,9 +54,9 @@ describe("redactSecrets — credential formats", () => {
   })
 
   test("redacts PEM private key blocks", () => {
-    const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY-----"
+    const pem = `${PEM_BEGIN_RSA}\n${PEM_BODY}\n${PEM_END_RSA}`
     const out = redactSecrets(`config = ${pem}`)
-    expect(out).not.toContain("MIIEpAIBAAKCAQEA")
+    expect(out).not.toContain(PEM_BODY)
     expect(out).toContain("[REDACTED:pem]")
   })
 
@@ -71,7 +79,7 @@ describe("redactSecrets — credential formats", () => {
   })
 
   test("redacts compound env-var names (AWS_SECRET_ACCESS_KEY, DB_PASSWORD, …)", () => {
-    expect(redactSecrets("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")).not.toContain("wJalr")
+    expect(redactSecrets(AWS_SECRET_LINE)).not.toContain("wJalr")
     expect(redactSecrets("DB_PASSWORD=hunter2pass")).not.toContain("hunter2")
     expect(redactSecrets("PGPASSWORD=postgrespass123")).not.toContain("postgrespass")
     expect(redactSecrets(`OPENAI_API_KEY=${OAI}`)).not.toContain(OAI_FRAG)
@@ -83,22 +91,48 @@ describe("redactSecrets — credential formats", () => {
   })
 
   test("redacts truncated PEM blocks (BEGIN with no END)", () => {
-    const truncated = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEAabcdef1234567890"
+    const truncated = `${PEM_BEGIN_RSA}\n${PEM_BODY}abcdef1234567890`
     const out = redactSecrets(`config = ${truncated} more text here`)
-    expect(out).not.toContain("MIIEpAIBAAKCAQEAabcdef")
+    expect(out).not.toContain(`${PEM_BODY}abcdef`)
+    expect(out).toContain("[REDACTED:pem]")
+  })
+
+  test("redacts a truncated PEM longer than the historical 4096 window to the end", () => {
+    // A real-sized key body (base64) well beyond the previous 4096-char cap,
+    // with no END marker. The whole tail must be scrubbed, not just the head.
+    const body = Buffer.from("x".repeat(6000)).toString("base64")
+    const truncated = `${PEM_BEGIN}\n${body}`
+    const out = redactSecrets(`prefix ${truncated} suffix`)
+    expect(out).not.toContain(body.slice(0, 60))
+    expect(out).not.toContain(body.slice(-60))
     expect(out).toContain("[REDACTED:pem]")
   })
 
   test("redacts GitLab / NVIDIA / Telegram tokens", () => {
     expect(redactSecrets(GLPAT)).toContain("[REDACTED:gitlab]")
     expect(redactSecrets(NVAPI)).toContain("[REDACTED:nvidia]")
-    expect(redactSecrets("123456789:AAH-synthetic-telegram-bot-token-12345")).toContain("[REDACTED:telegram]")
+    expect(redactSecrets(TELEGRAM)).toContain("[REDACTED:telegram]")
   })
 
   test("redacts bare session/cookie assignments", () => {
     expect(redactSecrets("session=abcdefgh1234567890")).not.toContain("abcdefgh")
     expect(redactSecrets('{"sid": "abcdefgh1234567890"}')).not.toContain("abcdefgh")
     expect(redactSecrets("csrf_token=abcdef1234567890abcd")).not.toContain("abcdef1234567890")
+  })
+
+  test("redacts private_key / passphrase / credential assignments", () => {
+    const val = (c: string) => c.repeat(8)
+    expect(redactSecrets(`private_key=${val("a")}`)).not.toContain("aaaaaaaa")
+    expect(redactSecrets(`ssh_private_key=${val("b")}`)).not.toContain("bbbbbbbb")
+    expect(redactSecrets(`service_private_key_data=${val("c")}`)).not.toContain("cccccccc")
+    expect(redactSecrets("passphrase=correct-horse-battery-staple")).not.toContain("battery")
+    expect(redactSecrets(`credential=${val("d")}`)).not.toContain("dddddddd")
+    expect(redactSecrets(`credentials=${val("e")}`)).not.toContain("eeeeeeee")
+    // The compound-name rule is case-insensitive: a mixed-case identifier that
+    // embeds a credential word (and that the standalone rule cannot match) is
+    // still redacted. This pins the `i` flag on its own.
+    expect(redactSecrets(`my_Db_PaSsWoRd_1=${val("f")}`)).not.toContain("ffffffff")
+    expect(redactSecrets(`svc_SeCrEt_field=${val("g")}`)).not.toContain("gggggggg")
   })
 
   test("preserves the key name and redacts only the value", () => {
@@ -138,10 +172,10 @@ describe("redactSecrets — robustness", () => {
   test("is idempotent", () => {
     const inputs = [
       `Bearer ${OAI}`,
-      "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      AWS_SECRET_LINE,
       "postgres://admin:s3cretpw@db.example.com:5432/app",
       "password=hunter2pass and api_key=sksynthetic1234567890abcdef",
-      "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+      `${PEM_BEGIN}\nabc\n${PEM_END}`,
     ]
     for (const input of inputs) {
       const once = redactSecrets(input)
@@ -156,7 +190,7 @@ describe("redactSecrets — robustness", () => {
     expect(Date.now() - start).toBeLessThan(1000)
 
     const start2 = Date.now()
-    redactSecrets("-----BEGIN PRIVATE KEY-----\n" + "x".repeat(50_000))
+    redactSecrets(`${PEM_BEGIN}\n` + "x".repeat(50_000))
     expect(Date.now() - start2).toBeLessThan(1000)
   })
 
@@ -183,7 +217,7 @@ describe("evidence redaction through buildEvidence", () => {
     const transcript = buildTranscript(messages, DEFAULT_CONFIG)
     const evidence = buildEvidence(
       {
-        request: request({ metadata: { command: "export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" } }),
+        request: request({ metadata: { command: `export ${AWS_SECRET_LINE}` } }),
         directory: "/repo",
         worktree: "/repo",
         transcript,

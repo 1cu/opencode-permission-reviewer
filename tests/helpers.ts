@@ -41,6 +41,7 @@ export class MockClient implements OpenCodeClientLike {
   readonly uiStatuses: ReviewUiStatus[] = []
   nextStructured: unknown = decision("allow")
   promptImpl?: (options: unknown) => Promise<{ data?: Record<string, unknown>; error?: unknown }>
+  messagesImpl?: (options: unknown) => Promise<{ data?: unknown; error?: unknown }>
   messageData: unknown = [
     {
       info: { id: "msg_user", role: "user" },
@@ -71,6 +72,7 @@ export class MockClient implements OpenCodeClientLike {
       },
       messages: async (options: unknown) => {
         this.messageQueries.push(options)
+        if (this.messagesImpl) return this.messagesImpl(options)
         if (this.messagesError !== undefined) return { error: this.messagesError }
         return { data: this.messageData }
       },

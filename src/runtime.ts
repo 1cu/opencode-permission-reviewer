@@ -119,6 +119,10 @@ export class ApprovalReviewerRuntime {
 
     const task = this.process(request)
       .catch(async (error) => {
+        // If the request was answered manually while we were gathering context
+        // (or racing with the model), do not resurrect it as "manual" — that
+        // would re-prompt the user for a request the server has already closed.
+        if (this.isSuperseded(request)) return
         const reason = error instanceof Error ? error.message : String(error)
         await this.emit(request, "manual", reason)
         this.log("review failed; leaving request for manual approval", {
@@ -228,6 +232,9 @@ export class ApprovalReviewerRuntime {
       if (superseded) return superseded
       return { kind: "deny", reason: envelope.preflightDenial, decision }
     }
+    // A manual reply arriving during context collection (transcript, git, ssh)
+    // supersedes the review before we spend a model call on it.
+    if (this.isSuperseded(request)) return this.supersedeResult()
     const reviewed = await this.runReviewer(envelope)
 
     if (reviewed.kind === "allow" && reviewed.decision) {
