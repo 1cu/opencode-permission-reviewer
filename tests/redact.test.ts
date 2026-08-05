@@ -10,6 +10,7 @@ import { request } from "./helpers.ts"
 // Scanners key on the full token shape; splitting the recognized prefix from
 // the body defeats that without weakening the assertion.
 const AWS_EX = "AKIA" + "IOSFODNN7EXAMPLE"
+const AWS_ASIA = "ASIA" + "IOSFODNN7EXAMPLE"
 const GHP = "ghp_" + "syntheticGitHubToken01234567890abcdefghijklmnopqrstuv"
 const GHU = "ghu_" + "syntheticGitHubUserToken01234567890abcdefghijklmnopqr"
 const GH_FINE = "github_" + "pat_synthetictoken1234567890abcdef"
@@ -29,10 +30,14 @@ const PEM_END_RSA = "-----END RSA " + "PRIVATE KEY-----"
 const PEM_BEGIN = "-----BEGIN " + "PRIVATE KEY-----"
 const PEM_END = "-----END " + "PRIVATE KEY-----"
 const PEM_BODY = "MIIEp" + "AIBAAKCAQEA"
+// GPG ASCII-armored secret key (note the trailing ` BLOCK`).
+const PGP_BEGIN = "-----BEGIN PGP " + "PRIVATE KEY BLOCK-----"
+const PGP_END = "-----END PGP " + "PRIVATE KEY BLOCK-----"
 
 describe("redactSecrets — credential formats", () => {
   test.each([
     ["AWS access key id", `env ${AWS_EX} here`, AWS_EX],
+    ["AWS temporary session token id", `creds ${AWS_ASIA} here`, AWS_ASIA],
     ["GitHub PAT", GHP, "ghp_"],
     ["GitHub user-to-server token", GHU, "ghu_"],
     ["GitHub fine-grained", GH_FINE, "github_pat_"],
@@ -61,6 +66,29 @@ describe("redactSecrets — credential formats", () => {
     const out = redactSecrets(`config = ${pem}`)
     expect(out).not.toContain(PEM_BODY)
     expect(out).toContain("[REDACTED:pem]")
+  })
+
+  test("redacts ASCII-armored GPG secret keys (PGP PRIVATE KEY BLOCK)", () => {
+    const armored = `${PGP_BEGIN}\n${PEM_BODY}\n${PGP_END}`
+    const out = redactSecrets(`exporter ran: gpg --export-secret-keys\n${armored}`)
+    expect(out).not.toContain(PEM_BODY)
+    expect(out).toContain("[REDACTED:pem]")
+  })
+
+  test("redacts a truncated PGP private key block to the end", () => {
+    const truncated = `${PGP_BEGIN}\n${PEM_BODY}abcdef1234567890`
+    const out = redactSecrets(`config = ${truncated} more text`)
+    expect(out).not.toContain(`${PEM_BODY}abcdef`)
+    expect(out).toContain("[REDACTED:pem]")
+  })
+
+  test("does NOT redact PGP PUBLIC KEY BLOCK, MESSAGE, or SIGNATURE", () => {
+    const pub = "-----BEGIN PGP PUBLIC KEY BLOCK-----\nabcd1234\n-----END PGP PUBLIC KEY BLOCK-----"
+    const msg = "-----BEGIN PGP MESSAGE-----\nabcd1234\n-----END PGP MESSAGE-----"
+    const sig = "-----BEGIN PGP SIGNATURE-----\nabcd1234\n-----END PGP SIGNATURE-----"
+    expect(redactSecrets(pub)).toContain("abcd1234")
+    expect(redactSecrets(msg)).toContain("abcd1234")
+    expect(redactSecrets(sig)).toContain("abcd1234")
   })
 
   test("redacts URL userinfo credentials", () => {

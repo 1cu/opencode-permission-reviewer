@@ -1,6 +1,6 @@
 {
   "name": "opencode-permission-reviewer",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Policy-aware permission reviewer for OpenCode V1",
   "type": "module",
   "private": true,

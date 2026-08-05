@@ -73,6 +73,39 @@ describe("deterministic emergency brake", () => {
     "sudo -A rm -rf /",
     "unshare --mount rm -rf /",
     "run0 --no-ask-password rm -rf /",
+    // find-based root destruction (rm reached via the expression, not as the
+    // segment executable).
+    "find / -delete",
+    "find / -type f -delete",
+    "find / -name x -delete",
+    "find / -exec rm -rf {} +",
+    "find / -exec rm -rf {} \\;",
+    "find / -execdir rm -rf {} +",
+    "sudo find / -delete",
+    "sudo find / -exec rm -rf {} +",
+    // Block-device destruction beyond the original mkfs/dd regexes.
+    "mkfs -t ext4 /dev/sda",
+    "mke2fs /dev/sda",
+    "mke2fs -t ext4 /dev/sdb",
+    "mkswap /dev/sda",
+    "shred /dev/sda",
+    "sudo shred -n 3 /dev/nvme0n1",
+    "wipefs -a /dev/sda",
+    "wipefs --all /dev/sda",
+    "sudo wipefs -a /dev/sda",
+    "sgdisk --zap-all /dev/sda",
+    "sgdisk -Z /dev/sda",
+    "sgdisk --zap /dev/sda",
+    "sgdisk -z /dev/sda",
+    "sgdisk --delete=1 /dev/sda",
+    "sgdisk -d 1 /dev/sda",
+    "sfdisk --delete /dev/sda",
+    "wipefs -af /dev/sda",
+    "wipefs -fa /dev/sda",
+    "parted /dev/sda mklabel msdos",
+    "parted /dev/sda rm 1",
+    "dd if=/dev/zero of=/dev/disk/by-id/ata-SAMSUNG",
+    "dd if=/dev/urandom of=/dev/loop0",
   ])("rejects unmistakable critical command: %s", (command) => {
     expect(emergencyBrakeReason(request({ metadata: { command } }))).toBeString()
   })
@@ -108,6 +141,38 @@ describe("deterministic emergency brake", () => {
     "rm -rf '\\/'",
     'rm -rf "\\/"',
     "rm -rf \\\\",
+    // find with non-root search paths is legitimate even with -delete/-exec rm.
+    "find /tmp -delete",
+    "find . -name '*.tmp' -delete",
+    "find /var/log -name '*.log' -delete",
+    "find /home -exec rm -rf {} +",
+    // Destructive tool mentioned but not executed (argument of echo/printf).
+    'echo "mkfs.ext4 /dev/sda"',
+    "printf 'dd if=/dev/zero of=/dev/nvme0n1'",
+    'echo "sudo find / -delete"',
+    'echo "shred /dev/sda"',
+    // Device inspection (non-destructive) must not trip.
+    "wipefs /dev/sda",
+    "sgdisk -p /dev/sda",
+    "sgdisk --print /dev/sda",
+    "sfdisk -d /dev/sda",
+    "parted /dev/sda print",
+    "fdisk -l /dev/sda",
+    "blkid /dev/sda",
+    "lsblk /dev/sda",
+    // Pseudo-devices under /dev/ are not block devices: dd/shred on them is
+    // legitimate (benchmarks, scratch, fd redirection).
+    "dd if=/dev/zero of=/dev/null bs=1M",
+    "dd if=/dev/urandom of=/dev/null",
+    "shred /dev/shm/scratch",
+    "shred /dev/fd/3",
+    // Dry-run format does not write.
+    "mkfs.ext4 -n /dev/sda",
+    "mke2fs -n /dev/sda",
+    // shred / dd on regular files is legitimate.
+    "shred /tmp/secret.txt",
+    "shred -u ~/notes.txt",
+    "dd if=/dev/zero of=/tmp/file bs=1M count=10",
   ])("does not overreach on non-critical command: %s", (command) => {
     expect(emergencyBrakeReason(request({ metadata: { command } }))).toBeUndefined()
   })

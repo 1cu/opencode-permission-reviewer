@@ -21,10 +21,9 @@ import { effectiveCommands, lexSegments, type ShellToken, shellBasename } from "
  */
 
 const ROOT_DESTRUCTION_REGEX = [
-  // Block-device formatting / raw overwrite (already robust to `sudo` via `\b`).
-  /\bmkfs(?:\.[a-z0-9]+)?\s+\/dev\//i,
-  /\bdd\b[^\n;&|]*\bof=\/dev\/(?:sd|nvme|vd|xvd)/i,
-  // Fork bomb.
+  // Fork bomb. (Block-device formatting/overwrite and rm/find destruction are
+  // handled by the lexer-based detectors below so that `echo "mkfs …"` and
+  // other non-executable mentions do not trip the brake.)
   /:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/,
 ]
 
@@ -109,6 +108,156 @@ function isRmRootDestruction(command: string): boolean {
   return false
 }
 
+/**
+ * `find / … -delete` and `find / … -exec rm -rf {} …` reach root through the
+ * find expression rather than through a literal `rm` operand, so the rm lexer
+ * above does not see them. Detect them directly: when the search root resolves
+ * to `/` and the expression deletes its results, the destruction is unmistakable.
+ */
+function isFindRootDestruction(command: string): boolean {
+  for (const segment of lexSegments(command)) {
+    for (const effective of effectiveCommands(segment)) {
+      if (effective.length === 0) continue
+      if (shellBasename(effective[0]!.value) !== "find") continue
+      let root: string | null = null
+      let hasDelete = false
+      let hasExecRm = false
+      for (let i = 1; i < effective.length; i += 1) {
+        const value = effective[i]!.value
+        // The search root is the first non-flag operand; everything after it
+        // belongs to the expression. Flags that take a value (e.g. `-maxdepth`)
+        // are not modelled here, so `find -maxdepth 1 / …` is a false negative
+        // (rare and safe) — we never falsely trip.
+        if (root === null) {
+          if (value.startsWith("-") && value.length > 1) continue
+          if (value === "--") continue
+          root = value
+          continue
+        }
+        if (value === "-delete") hasDelete = true
+        if (value === "-exec" || value === "-execdir" || value === "-ok" || value === "-okdir") {
+          // First non-placeholder token after -exec is the executable; if it is
+          // `rm` with recursive+force flags, find destroys its matches.
+          let j = i + 1
+          while (j < effective.length && (effective[j]!.value === "{" || effective[j]!.value === "}")) j += 1
+          if (j < effective.length && shellBasename(effective[j]!.value) === "rm") {
+            const { recursive, force } = hasRmFlags(effective.slice(j))
+            if (recursive && force) hasExecRm = true
+          }
+        }
+      }
+      if (root !== null && resolvesToRoot(root) && (hasDelete || hasExecRm)) return true
+    }
+  }
+  return false
+}
+
+/**
+ * Block-device destruction that is unmistakable regardless of arguments:
+ * formatting (`mkfs*`, `mke2fs`, `mkswap`), signature wipe (`wipefs -a`),
+ * raw overwrite (`dd of=/dev/…`, `shred /dev/…`), partition-table destruction
+ * (`sgdisk --zap-all`/`-z`/`--delete=N`, `sfdisk --delete`/`--wipe`,
+ * `parted mklabel`/`rm`). Detected via the lexer so privilege wrappers and
+ * `echo "mkfs …"` (where the destructive tool is an argument, not the
+ * executable) are handled correctly.
+ */
+const MKFS_FAMILY = /^mkfs(?:\.[a-z0-9]+)?$/
+const UNCONDITIONAL_DEVICE_TOOLS = new Set(["mke2fs", "mkswap", "shred"])
+/**
+ * Whitelist of real block-device path prefixes so that pseudo-devices
+ * (`/dev/null`, `/dev/zero`, `/dev/shm/…`, `/dev/fd/…`, etc.) — which sit under
+ * `/dev/` but are not disks — do not trip the brake on legitimate patterns
+ * like `dd … of=/dev/null` or `shred /dev/shm/scratch`.
+ */
+const BLOCK_DEVICE_RE = /^\/dev\/(?:sd|hd|vd|xvd|nvme|mmcblk|loop|md|dm-|zram|drbd|bcache|mapper\/|disk\/by-)/
+
+function isBlockDeviceTarget(value: string): boolean {
+  return BLOCK_DEVICE_RE.test(value)
+}
+
+/** Whether a short-flag cluster (e.g. `-af`) contains a given flag letter. */
+function shortFlagClusterIncludes(value: string, letter: string): boolean {
+  return value.startsWith("-") && !value.startsWith("--") && value.length > 1 && value.includes(letter)
+}
+
+function isDeviceDestruction(command: string): boolean {
+  for (const segment of lexSegments(command)) {
+    for (const effective of effectiveCommands(segment)) {
+      if (effective.length === 0) continue
+      const base = shellBasename(effective[0]!.value)
+      const args = effective.slice(1)
+      const targetsBlock = args.some((t) => isBlockDeviceTarget(t.value))
+
+      // mkfs / mkfs.* / mke2fs / mkswap: any real block target is destruction,
+      // unless a dry-run flag is present (`-n` for mke2fs/mkfs.ext4, `-V`/`-t`
+      // alone do not write but are rare; `-n` is the canonical dry-run).
+      if (MKFS_FAMILY.test(base) || base === "mke2fs" || base === "mkswap") {
+        if (!targetsBlock) continue
+        const dryRun = args.some((t) => t.value === "-n" || t.value === "--dry-run")
+        if (!dryRun) return true
+      }
+      // shred: any real block target is destruction.
+      if (base === "shred" && targetsBlock) return true
+
+      // wipefs: only --all/-a (alone or clustered like `-af`)/-t wipes
+      // signatures; bare wipefs just lists signatures.
+      if (base === "wipefs" && targetsBlock) {
+        const wipes = args.some((t) => {
+          const v = t.value
+          return (
+            v === "--all" ||
+            v === "-a" ||
+            shortFlagClusterIncludes(v, "a") ||
+            v.startsWith("-t") ||
+            v === "--types"
+          )
+        })
+        if (wipes) return true
+      }
+
+      // dd: detect `of=<real block device>` (the lexer already stripped quotes).
+      if (base === "dd") {
+        const hitsBlock = args.some((t) => {
+          if (!t.value.startsWith("of=")) return false
+          return isBlockDeviceTarget(t.value.slice(3))
+        })
+        if (hitsBlock) return true
+      }
+
+      // sgdisk: destructive ops are --zap-all/-Z (wipe everything), -z/--zap
+      // (destroy GPT data structures), and --delete[=N]/-d _N (delete a
+      // partition). -d requires a following partition-number argument.
+      if (base === "sgdisk" && targetsBlock) {
+        const destructive = args.some((t) => {
+          const v = t.value
+          return v === "--zap-all" || v === "-Z" || v === "--zap" || v === "-z" || v.startsWith("--delete")
+        })
+        const deleteShort = args.some((t) => t.value === "-d" || t.value === "--delete")
+        if (destructive || (deleteShort && args.some((t) => /^[0-9]+$/.test(t.value)))) return true
+      }
+
+      // sfdisk: --delete (with partition list) and --wipe* destroy data.
+      // NOTE: sfdisk's `-d` is `--dump` (read-only backup), NOT delete — do not
+      // share the sgdisk short-flag set.
+      if (base === "sfdisk" && targetsBlock) {
+        const destructive = args.some((t) => {
+          const v = t.value
+          return v === "--delete" || v.startsWith("--wipe")
+        })
+        if (destructive) return true
+      }
+
+      // parted: `mklabel` rewrites the partition table; `rm N` deletes a
+      // partition.
+      if (base === "parted" && targetsBlock) {
+        const destructive = args.some((t) => t.value === "mklabel" || t.value === "rm")
+        if (destructive) return true
+      }
+    }
+  }
+  return false
+}
+
 export function emergencyBrakeReason(request: PermissionRequest): string | undefined {
   if (request.permission !== "bash") return
   const command =
@@ -117,6 +266,8 @@ export function emergencyBrakeReason(request: PermissionRequest): string | undef
       : request.patterns.filter((pattern) => typeof pattern === "string").join("\n")
 
   if (isRmRootDestruction(command)) return ROOT_DESTRUCTION_REASON
+  if (isFindRootDestruction(command)) return ROOT_DESTRUCTION_REASON
+  if (isDeviceDestruction(command)) return ROOT_DESTRUCTION_REASON
   if (ROOT_DESTRUCTION_REGEX.some((pattern) => pattern.test(command))) return ROOT_DESTRUCTION_REASON
   if (OBVIOUS_SECRET_EXPORT.some((pattern) => pattern.test(command))) return SECRET_EXPORT_REASON
 }

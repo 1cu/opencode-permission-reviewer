@@ -25,9 +25,12 @@ const REDACT = (type: string) => `[REDACTED:${type}]`
 // auth headers, then generic credential assignments. Each value-level rule
 // carries a `(?!\[REDACTED)` guard so a second pass is a no-op.
 const RULES: ReadonlyArray<{ re: RegExp; replace: (match: string, groups: string[]) => string }> = [
-  // PEM private key blocks (bounded to avoid pathological backtracking).
+  // PEM private key blocks (bounded to avoid pathological backtracking). The
+  // optional ` BLOCK` arm covers ASCII-armored GPG secret keys
+  // (`-----BEGIN PGP PRIVATE KEY BLOCK-----`), which the simpler alternation
+  // missed because of the trailing ` BLOCK`.
   {
-    re: /-----BEGIN (?:[A-Z ]*PRIVATE KEY)-----[\s\S]{0,8192}?-----END (?:[A-Z ]*PRIVATE KEY)-----/g,
+    re: /-----BEGIN (?:[A-Z ]*PRIVATE KEY(?: BLOCK)?)-----[\s\S]{0,8192}?-----END (?:[A-Z ]*PRIVATE KEY(?: BLOCK)?)-----/g,
     replace: () => REDACT("pem"),
   },
   // Truncated PEM (BEGIN with no matching END within the complete-block
@@ -36,11 +39,11 @@ const RULES: ReadonlyArray<{ re: RegExp; replace: (match: string, groups: string
   // leak its tail. The `*` quantifier is a single greedy linear scan (no
   // alternation), so it is safe from pathological backtracking.
   {
-    re: /-----BEGIN (?:[A-Z ]*PRIVATE KEY)-----[\s\S]*/g,
+    re: /-----BEGIN (?:[A-Z ]*PRIVATE KEY(?: BLOCK)?)-----[\s\S]*/g,
     replace: () => REDACT("pem"),
   },
-  // AWS access key id.
-  { re: /\bAKIA[0-9A-Z]{16}\b/g, replace: () => REDACT("aws") },
+  // AWS access key ids: long-term (AKIA) and temporary/session (ASIA).
+  { re: /\bA(?:KIA|SIA)[0-9A-Z]{16}\b/g, replace: () => REDACT("aws") },
   // GitHub tokens (ghu_ covers user-to-server OAuth tokens).
   { re: /\b(?:ghp|gho|ghs|ghr|ghu)_[A-Za-z0-9]{36,251}\b/g, replace: () => REDACT("github") },
   { re: /\bgithub_pat_[A-Za-z0-9_]{22,251}\b/g, replace: () => REDACT("github") },
