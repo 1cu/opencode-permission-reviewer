@@ -1,9 +1,13 @@
 import type { MessageWithParts, PermissionRequest, ReviewEnvelope, ReviewerConfig } from "./types.ts"
+import { redactSecrets } from "./redact.ts"
 
 function truncate(value: string, max: number): string {
-  if (value.length <= max) return value
-  const omitted = value.length - max
-  return `${value.slice(0, max)}\n<truncated characters="${omitted}" />`
+  // Redact secrets before measuring/truncating so a credential can never slip
+  // through because its surrounding text was chopped at a budget boundary.
+  const redacted = redactSecrets(value)
+  if (redacted.length <= max) return redacted
+  const omitted = redacted.length - max
+  return `${redacted.slice(0, max)}\n<truncated characters="${omitted}" />`
 }
 
 function stableJson(value: unknown, max: number): string {

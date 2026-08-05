@@ -68,7 +68,10 @@ describe("SSH evidence enrichment", () => {
     const credential = join(directory, "credential.py")
     await writeFile(oversized, "x".repeat(2_000))
     await writeFile(binary, Buffer.from([0, 1, 2, 3]))
-    await writeFile(credential, 'api_key = "sk-examplecredential123456789"\n')
+    // Synthetic credential assembled by concatenation so no continuous
+    // secret-shaped literal appears in source (see AGENTS.md).
+    const synthCred = "sk-" + "examplecredential123456789"
+    await writeFile(credential, `api_key = "${synthCred}"\n`)
 
     const cases = [
       [join(directory, "missing.py"), "unavailable", true],

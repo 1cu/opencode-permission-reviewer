@@ -45,7 +45,32 @@ export function enforceDecision(decision: ReviewDecision, config: ReviewerConfig
     }
   }
 
+  // Deterministic risk×authorization gate. This only ever RESTRICTS an `allow`:
+  // the model's `deny`/`escalate` outcomes are always preserved. Low confidence
+  // is checked first because, when the labels are unreliable, the confidence
+  // reason is the right diagnosis to surface to a human.
+  //
+  // Matrix for outcome=allow (confidence ≥ threshold):
+  //                 high      medium    low         unknown
+  //   low           allow     allow     allow       allow (deliberate)
+  //   medium        allow     allow     allow*      ESCALATE
+  //   high          allow     allow     ESCALATE    ESCALATE
+  //   critical      ESCALATE (any authorization, handled above)
+  //
+  // The two permissive cells (medium+low, low+unknown) are deliberate: low risk
+  // means routine, narrow and reversible, where authorization evidence is not
+  // essential. Medium+unknown escalates because non-trivial blast radius needs
+  // at least some authorization signal. Everything high or critical with weak
+  // authorization must not be auto-approved.
   if (decision.outcome === "allow") {
+    const { risk_level: risk, user_authorization: auth } = decision
+    if ((risk === "high" && (auth === "low" || auth === "unknown")) || (risk === "medium" && auth === "unknown")) {
+      return {
+        kind: "escalate",
+        decision,
+        reason: `Reviewer allow for ${risk} risk with ${auth} user authorization; manual review required.`,
+      }
+    }
     return { kind: "allow", decision, reason: decision.rationale }
   }
   if (decision.outcome === "deny") {

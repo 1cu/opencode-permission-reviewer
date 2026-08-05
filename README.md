@@ -190,19 +190,29 @@ decision**.
 
 1. OpenCode emits `permission.asked` for any `ask`-classified action.
 2. A deterministic **emergency brake** rejects unmistakable root destruction and
-   direct credential export before any model call.
+   direct credential export before any model call. It is wrapper-aware
+   (`sudo`, `doas`, `env`, `command`, `nice`, `nohup`, …), so `sudo rm -rf /`,
+   `env VAR=x rm -rf /`, `/bin/rm -rf /`, `sh -c 'rm -rf /'`, `ssh host rm -rf /`,
+   and `busybox rm -rf /` are all caught.
 3. The plugin builds bounded **evidence**: recent transcript, recovered user
    intent (filtering synthetic compaction messages), and optional read-only
    enrichment for SSH commands, local interpreter scripts, and Git state.
+   **Common credential formats are always redacted** from this evidence
+   (`Bearer`, AWS / GitHub / OpenAI / Anthropic / Slack / Google / Stripe /
+   GitLab keys, JWTs, private keys, URL userinfo, cookies, and
+   credential-bearing assignments) so a secret you once pasted into the
+   session never travels to the reviewer's provider.
 4. A **tool-free child session** runs the reviewer model with a strict JSON
    schema and returns `{ outcome, risk_level, user_authorization, rationale,
    confidence }`.
 5. Decisions are enforced with invariants: **critical risk is never approved**,
-   low confidence is escalated, invalid output is escalated, errors and
-   timeouts are escalated.
+   **high risk with low/unknown authorization is escalated**, **medium risk
+   with unknown authorization is escalated**, low confidence is escalated,
+   invalid output is escalated, errors and timeouts are escalated.
 6. Approved actions get `once` (never `always`); the rationale is annotated onto
    the tool result so the primary agent sees it. Denials return the rationale
-   as tool feedback.
+   as tool feedback. A manual reply that arrives mid-review **supersedes** the
+   automatic one (no double reply, no stale annotation).
 
 Everything fails safe to **manual review**: if anything is missing, broken, or
 untrusted, the original permission request is left pending for you.
@@ -245,11 +255,20 @@ binary, blocked, or truncated evidence) remains a reviewer decision.
 - Responds only to `permission.asked`.
 - **Critical-risk actions cannot be approved**, even if model output says
   `allow`.
+- **High-risk actions with low or unknown authorization, and medium-risk
+  actions with unknown authorization, are deterministically escalated** — the
+  model cannot auto-approve them by labeling a contradictory combination.
 - Invalid, low-confidence, or inconsistent output is escalated to the user.
+- **Secrets in the evidence are always redacted** before reaching the reviewer,
+  so credentials never leak to the reviewer's provider.
 - Reviewer sessions cannot request permissions recursively; all reviewer tools
   are explicitly disabled.
 - A narrow deterministic emergency brake rejects unmistakable root destruction
-  and direct credential-file export before any model call.
+  (including privilege-prefixed and command-string forms such as
+  `sudo rm -rf /`, `sh -c 'rm -rf /'`, `ssh host rm -rf /`) and direct
+  credential-file export before any model call.
+- A manual reply that arrives while a review is in flight **supersedes** it: the
+  reviewer stops without replying, annotating, or resurrecting a UI state.
 - Approved rationales are annotated onto the tool result; denials return the
   rationale as feedback.
 - SSH commands and executable stdin receive bounded, untrusted action

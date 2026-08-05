@@ -126,7 +126,10 @@ describe("runtime decisions", () => {
   test("leaves sensitive but existing remote stdin decisions to Luna", async () => {
     const directory = await mkdtemp("/tmp/opencode/approval-reviewer-sensitive-")
     const script = `${directory}/script.py`
-    await writeFile(script, 'api_key = "sk-syntheticcredential123456789"\n')
+    // Synthetic credential assembled by concatenation so no continuous
+    // secret-shaped literal appears in source (see AGENTS.md).
+    const synthCred = "sk-" + "syntheticcredential123456789"
+    await writeFile(script, `api_key = "${synthCred}"\n`)
     try {
       const client = new MockClient()
       client.nextStructured = decision("deny", { rationale: "Luna rejected the credential-bearing script." })
@@ -315,6 +318,126 @@ describe("runtime decisions", () => {
     const result = await runtime(client).runtime.process(request())
     expect(result.kind).toBe("allow")
     expect(replyBody(client.replies[0]).reply).toBe("once")
+  })
+
+  test("a manual reject during the model call supersedes the review (no double reply, no annotation)", async () => {
+    const client = new MockClient()
+    const resolvers: Array<(value: { data: Record<string, unknown> }) => void> = []
+    client.promptImpl = () =>
+      new Promise((resolve) => {
+        resolvers.push(resolve)
+      })
+    const harness = runtime(client)
+    harness.runtime.handle(request())
+    // Let the reviewer reach the model call, then have the human reject.
+    await new Promise((r) => setTimeout(r, 5))
+    harness.runtime.handlePermissionReply({
+      type: "permission.replied",
+      properties: { sessionID: "ses_main", requestID: "per_1", reply: "reject" },
+    })
+    for (const resolve of resolvers) resolve({ data: { info: { structured: decision("allow") } } })
+    await harness.runtime.waitForIdle()
+    expect(client.replies).toHaveLength(0)
+    expect(client.uiStatuses.map((s) => s.phase)).toEqual(["reviewing"])
+    const output = { output: "should not be annotated", metadata: {} }
+    harness.runtime.annotateToolResult("call_1", output)
+    expect(output.output).toBe("should not be annotated")
+  })
+
+  test("a manual allow during the model call supersedes the review (no duplicate once)", async () => {
+    const client = new MockClient()
+    const resolvers: Array<(value: { data: Record<string, unknown> }) => void> = []
+    client.promptImpl = () =>
+      new Promise((resolve) => {
+        resolvers.push(resolve)
+      })
+    const harness = runtime(client)
+    harness.runtime.handle(request())
+    await new Promise((r) => setTimeout(r, 5))
+    harness.runtime.handlePermissionReply({
+      type: "permission.replied",
+      properties: { sessionID: "ses_main", requestID: "per_1", reply: "once" },
+    })
+    for (const resolve of resolvers) resolve({ data: { info: { structured: decision("deny") } } })
+    await harness.runtime.waitForIdle()
+    expect(client.replies).toHaveLength(0)
+    expect(client.uiStatuses.map((s) => s.phase)).toEqual(["reviewing"])
+  })
+
+  test("a manual reply for one request does not cancel a sibling review in the same session", async () => {
+    const client = new MockClient()
+    const resolvers: Array<(value: { data: Record<string, unknown> }) => void> = []
+    client.promptImpl = () =>
+      new Promise((resolve) => {
+        resolvers.push(resolve)
+      })
+    const harness = runtime(client)
+    harness.runtime.handle(request({ id: "per_1", tool: { messageID: "m1", callID: "c1" } }))
+    harness.runtime.handle(request({ id: "per_2", tool: { messageID: "m2", callID: "c2" } }))
+    await new Promise((r) => setTimeout(r, 10))
+    harness.runtime.handlePermissionReply({
+      type: "permission.replied",
+      properties: { sessionID: "ses_main", requestID: "per_2", reply: "reject" },
+    })
+    for (const resolve of resolvers) resolve({ data: { info: { structured: decision("allow") } } })
+    await harness.runtime.waitForIdle()
+    // The sibling review that was NOT answered manually completes normally.
+    expect(client.replies.filter((r) => replyBody(r).reply === "once")).toHaveLength(1)
+    expect(client.replies.filter((r) => replyBody(r).reply === "reject")).toHaveLength(0)
+    expect(resolvers).toHaveLength(2)
+  })
+
+  test("a reply to an unknown request leaves in-flight reviews untouched (and does not leak)", async () => {
+    const harness = runtime()
+    harness.runtime.handlePermissionReply({
+      type: "permission.replied",
+      properties: { sessionID: "ses_main", requestID: "never_seen", reply: "reject" },
+    })
+    const result = await harness.runtime.process(request())
+    expect(result.kind).toBe("allow")
+    expect(replyBody(harness.client.replies[0]).reply).toBe("once")
+  })
+
+  test("a manual reject during the model call also supersedes an escalate outcome (no manual resurrection)", async () => {
+    const client = new MockClient()
+    const resolvers: Array<(value: { data: Record<string, unknown> }) => void> = []
+    client.promptImpl = () =>
+      new Promise((resolve) => {
+        resolvers.push(resolve)
+      })
+    const harness = runtime(client)
+    harness.runtime.handle(request())
+    await new Promise((r) => setTimeout(r, 5))
+    harness.runtime.handlePermissionReply({
+      type: "permission.replied",
+      properties: { sessionID: "ses_main", requestID: "per_1", reply: "reject" },
+    })
+    // Low-confidence allow becomes an escalate; the manual reply must still win.
+    for (const resolve of resolvers) resolve({ data: { info: { structured: decision("allow", { confidence: 0.2 }) } } })
+    await harness.runtime.waitForIdle()
+    expect(client.replies).toHaveLength(0)
+    expect(client.uiStatuses.map((s) => s.phase)).toEqual(["reviewing"])
+  })
+
+  test("a 404 on the reply (window residual) is benign: no manual resurrection, annotation rolled back", async () => {
+    const client = new MockClient()
+    client.replyError = { status: 404, message: "PermissionNotFoundError" }
+    const harness = runtime(client)
+    const result = await harness.runtime.process(request())
+    expect(result.kind).toBe("escalate")
+    expect(client.uiStatuses.map((s) => s.phase)).not.toContain("manual")
+    const output = { output: "x", metadata: {} }
+    harness.runtime.annotateToolResult("call_1", output)
+    expect(output.output).toBe("x")
+  })
+
+  test("a PermissionNotFoundError message without status/code is still recognized as already-resolved", async () => {
+    const client = new MockClient()
+    client.replyError = { message: "PermissionNotFoundError: request not found" }
+    const harness = runtime(client)
+    const result = await harness.runtime.process(request())
+    expect(result.kind).toBe("escalate")
+    expect(client.uiStatuses.map((s) => s.phase)).not.toContain("manual")
   })
 })
 

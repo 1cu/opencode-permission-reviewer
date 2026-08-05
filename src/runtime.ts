@@ -17,6 +17,7 @@ import { createUiStatus, type ReviewUiStatus } from "./ui-protocol.ts"
 import { enrichSshEvidence, type SshAuditSummary } from "./ssh-evidence.ts"
 import { enrichLocalScriptEvidence } from "./local-script-evidence.ts"
 import { enrichGitEvidence } from "./git-evidence.ts"
+import { redactSecrets } from "./redact.ts"
 
 interface ClientResponse<T> {
   data?: T
@@ -83,6 +84,14 @@ export class ApprovalReviewerRuntime {
   private readonly reviewerSessions = new Set<string>()
   private readonly approvedByCall = new Map<string, ApprovedAnnotation[]>()
   private readonly sshAuditByRequest = new Map<string, SshAuditSummary[]>()
+  /**
+   * Request IDs that a human (or any other reply source) resolved while the
+   * automatic review was still in flight. The in-flight review must then give
+   * up silently: no `emit`, no `reply`, and no `annotateToolResult`. OpenCode
+   * resolves a request on a first-writer basis, so a late programmatic reply
+   * returns 404 PermissionNotFoundError — we treat that the same way.
+   */
+  private readonly resolvedManually = new Set<string>()
   private readonly log: Logger
 
   constructor(
@@ -119,6 +128,8 @@ export class ApprovalReviewerRuntime {
       })
       .finally(() => {
         this.pending.delete(request.id)
+        // Prune so the set cannot grow unboundedly across a long session.
+        this.resolvedManually.delete(request.id)
       })
     this.pending.set(request.id, task)
   }
@@ -144,14 +155,50 @@ export class ApprovalReviewerRuntime {
     }
   }
 
+  private supersedeResult(): ReviewExecutionResult {
+    return {
+      kind: "escalate",
+      reason: "Request already answered manually; automatic review superseded.",
+    }
+  }
+
+  private isSuperseded(request: PermissionRequest): boolean {
+    return this.resolvedManually.has(request.id)
+  }
+
+  /**
+   * Reject a request with `reject` while honoring supersede. Returns `undefined`
+   * when the rejection was applied, or the supersede result when the request had
+   * already been answered manually (so the caller returns it unchanged).
+   */
+  private async denyAndReply(
+    request: PermissionRequest,
+    reason: string,
+    decision?: ReviewDecision,
+  ): Promise<ReviewExecutionResult | undefined> {
+    if (this.isSuperseded(request)) return this.supersedeResult()
+    await this.emit(request, "denied", reason, decision)
+    if (this.isSuperseded(request)) return this.supersedeResult()
+    const accepted = await this.safeReply(request, "reject", reason)
+    if (!accepted) return this.supersedeResult()
+    return undefined
+  }
+
   private async processRequest(request: PermissionRequest): Promise<ReviewExecutionResult> {
     await this.emit(request, "reviewing")
 
     if (this.reviewerSessions.has(request.sessionID)) {
       const reason = "Automatic reviewer sessions may not request additional permissions."
-      await this.emit(request, "denied", reason)
-      await this.reply(request, "reject", reason)
-      return { kind: "deny", reason }
+      const decision: ReviewDecision = {
+        outcome: "deny",
+        risk_level: "critical",
+        user_authorization: "unknown",
+        rationale: reason,
+        confidence: 1,
+      }
+      const superseded = await this.denyAndReply(request, reason, decision)
+      if (superseded) return superseded
+      return { kind: "deny", reason, decision }
     }
 
     const brake = emergencyBrakeReason(request)
@@ -163,8 +210,8 @@ export class ApprovalReviewerRuntime {
         rationale: brake,
         confidence: 1,
       }
-      await this.emit(request, "denied", brake, decision)
-      await this.reply(request, "reject", brake)
+      const superseded = await this.denyAndReply(request, brake, decision)
+      if (superseded) return superseded
       return { kind: "deny", reason: brake, decision }
     }
 
@@ -177,13 +224,16 @@ export class ApprovalReviewerRuntime {
         rationale: envelope.preflightDenial,
         confidence: 1,
       }
-      await this.emit(request, "denied", envelope.preflightDenial, decision)
-      await this.reply(request, "reject", envelope.preflightDenial)
+      const superseded = await this.denyAndReply(request, envelope.preflightDenial, decision)
+      if (superseded) return superseded
       return { kind: "deny", reason: envelope.preflightDenial, decision }
     }
     const reviewed = await this.runReviewer(envelope)
 
     if (reviewed.kind === "allow" && reviewed.decision) {
+      // A manual reply arriving during the model call supersedes the review:
+      // do NOT stage an annotation or reply, and do NOT emit a UI phase.
+      if (this.isSuperseded(request)) return this.supersedeResult()
       let annotation: ApprovedAnnotation | undefined
       if (request.tool?.callID) {
         const current = this.approvedByCall.get(request.tool.callID) ?? []
@@ -193,7 +243,17 @@ export class ApprovalReviewerRuntime {
       }
       try {
         await this.emit(request, "approved", reviewed.reason, reviewed.decision)
-        await this.reply(request, "once")
+        const accepted = await this.safeReply(request, "once")
+        if (!accepted) {
+          // Request was resolved by someone else; roll back the annotation.
+          if (request.tool?.callID && annotation) {
+            const current = this.approvedByCall.get(request.tool.callID) ?? []
+            const remaining = current.filter((item) => item !== annotation)
+            if (remaining.length === 0) this.approvedByCall.delete(request.tool.callID)
+            else this.approvedByCall.set(request.tool.callID, remaining)
+          }
+          return this.supersedeResult()
+        }
       } catch (error) {
         if (request.tool?.callID && annotation) {
           const current = this.approvedByCall.get(request.tool.callID) ?? []
@@ -207,11 +267,15 @@ export class ApprovalReviewerRuntime {
     }
 
     if (reviewed.kind === "deny") {
-      await this.emit(request, "denied", reviewed.reason, reviewed.decision)
-      await this.reply(request, "reject", reviewed.reason)
+      const superseded = await this.denyAndReply(request, reviewed.reason, reviewed.decision)
+      if (superseded) return superseded
       return reviewed
     }
 
+    // Escalate (low confidence, invalid output, timeout, …). A manual reply
+    // arriving during the model call supersedes here too: do not emit a "manual"
+    // phase that would resurrect the request in the TUI after the human acted.
+    if (this.isSuperseded(request)) return this.supersedeResult()
     await this.emit(request, "manual", reviewed.reason, reviewed.decision)
     this.log("review escalated to user", { requestID: request.id, reason: reviewed.reason })
     return reviewed
@@ -225,12 +289,23 @@ export class ApprovalReviewerRuntime {
       typeof record.properties === "object" && record.properties !== null
         ? (record.properties as Record<string, unknown>)
         : undefined
-    if (!properties || properties.reply !== "reject" || typeof properties.sessionID !== "string") return
+    if (!properties || typeof properties.sessionID !== "string") return
 
-    for (const [callID, annotations] of this.approvedByCall) {
-      const remaining = annotations.filter((annotation) => annotation.sessionID !== properties.sessionID)
-      if (remaining.length === 0) this.approvedByCall.delete(callID)
-      else if (remaining.length !== annotations.length) this.approvedByCall.set(callID, remaining)
+    // Drop approval annotations when the human rejects the session's tool calls.
+    if (properties.reply === "reject") {
+      for (const [callID, annotations] of this.approvedByCall) {
+        const remaining = annotations.filter((annotation) => annotation.sessionID !== properties.sessionID)
+        if (remaining.length === 0) this.approvedByCall.delete(callID)
+        else if (remaining.length !== annotations.length) this.approvedByCall.set(callID, remaining)
+      }
+    }
+
+    // Any terminal reply (once | always | reject) to a request we are still
+    // reviewing means the in-flight review is now superseded. OpenCode always
+    // carries requestID (verified against the SDK V2 contract), so we key off
+    // it and never fall back to the session (which could cancel sibling reviews).
+    if (typeof properties.requestID === "string" && this.pending.has(properties.requestID)) {
+      this.resolvedManually.add(properties.requestID)
     }
   }
 
@@ -342,7 +417,9 @@ export class ApprovalReviewerRuntime {
         await this.ctx.client.session.create({
           body: {
             parentID: envelope.request.sessionID,
-            title: `[permission-review] ${envelope.request.permission}: ${envelope.request.patterns.join(", ").slice(0, 120)}`,
+            title: `[permission-review] ${envelope.request.permission}: ${redactSecrets(
+              envelope.request.patterns.join(", "),
+            ).slice(0, 120)}`,
           },
           query: { directory: this.ctx.directory },
         }),
@@ -411,7 +488,17 @@ export class ApprovalReviewerRuntime {
     }
   }
 
-  private async reply(request: PermissionRequest, reply: "once" | "reject", message?: string): Promise<void> {
+  /**
+   * Send a permission reply. Returns `true` on success, `false` when the
+   * request was already resolved by another source (human TUI, a duplicate
+   * event, etc.) so the caller can treat itself as superseded. Other errors
+   * (transport failure, malformed reply) are still thrown.
+   */
+  private async safeReply(
+    request: PermissionRequest,
+    reply: "once" | "reject",
+    message?: string,
+  ): Promise<boolean> {
     const response = await this.ctx.permissionReply({
       path: { requestID: request.id },
       body: {
@@ -420,7 +507,18 @@ export class ApprovalReviewerRuntime {
       },
       query: { directory: this.ctx.directory },
     })
-    responseData(response, "permission.reply")
+    if (response.error !== undefined) {
+      if (isAlreadyResolvedError(response.error)) {
+        this.resolvedManually.add(request.id)
+        this.log("review reply rejected because the request was already resolved", {
+          requestID: request.id,
+          error: response.error,
+        })
+        return false
+      }
+      throw new Error(`permission.reply failed: ${JSON.stringify(response.error)}`)
+    }
+    return true
   }
 
   private async emit(
@@ -491,4 +589,25 @@ export function extractPermissionRequest(event: unknown): PermissionRequest | un
 
 export function normalizeMessageList(value: unknown): MessageWithParts[] {
   return normalizeMessages(value)
+}
+
+/**
+ * Recognize the error shape OpenCode returns when a permission reply arrives
+ * for a request that was already resolved (first-writer-wins). The server's
+ * `PermissionNotFoundError` is HTTP 404; the raw SDK may surface it as a status
+ * code, an error code, or a human-readable message.
+ */
+function isAlreadyResolvedError(error: unknown): boolean {
+  if (error == null || typeof error !== "object") return false
+  const record = error as Record<string, unknown>
+  const status = record.status
+  if (status === 404 || status === "404") return true
+  const code = typeof record.code === "string" ? record.code : ""
+  if (/PermissionNotFound|not_found|notfound|already_resolved/i.test(code)) return true
+  const message = typeof record.message === "string" ? record.message : ""
+  // Match the OpenCode PermissionNotFoundError class and its common phrasings.
+  // No `\b` so camelCase "PermissionNotFoundError" and "notfound" still match.
+  return /PermissionNotFound|not\s*found|no\s+longer\s+(?:pending|exist)s?|already\s+(?:been\s+)?(?:resolved|answered|replied|closed)/i.test(
+    message,
+  )
 }

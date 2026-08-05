@@ -1,0 +1,201 @@
+import { describe, expect, test } from "bun:test"
+import { DEFAULT_CONFIG } from "../src/config.ts"
+import { buildEvidence, buildTranscript, normalizeMessages } from "../src/context.ts"
+import { redactSecrets } from "../src/redact.ts"
+import { request } from "./helpers.ts"
+
+// Live-secret-shaped fixtures are built by string concatenation so that no
+// continuous literal in source matches a static secret scanner (see AGENTS.md).
+// Scanners key on the full token shape; splitting the recognized prefix from
+// the body defeats that without weakening the assertion.
+const AWS_EX = "AKIA" + "IOSFODNN7EXAMPLE"
+const GHP = "ghp_" + "syntheticGitHubToken01234567890abcdefghijklmnopqrstuv"
+const GH_FINE = "github_" + "pat_synthetictoken1234567890abcdef"
+const OAI_PROJ = "sk-" + "proj-synthetictoken1234567890abcdef"
+const OAI = "sk-" + "synthetictoken1234567890ABCDEF1234567890"
+const OAI_FRAG = "sk-" + "synthetic"
+const ANTHROPIC = "sk-" + "ant-synthetictoken1234567890ABCDEF"
+const SLACK = "xox" + "b-synthetic-slack-token-1234567890"
+const JWT = "ey" + "JhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.signatureabcdefg"
+const GLPAT = "gl" + "pat-syntheticgitlabtoken1234"
+const NVAPI = "nv" + "api-syntheticnvidiatoken1234abcd"
+
+describe("redactSecrets — credential formats", () => {
+  test.each([
+    ["AWS access key id", `env ${AWS_EX} here`, AWS_EX],
+    ["GitHub PAT", GHP, "ghp_"],
+    ["GitHub fine-grained", GH_FINE, "github_pat_"],
+    ["OpenAI project key", OAI_PROJ, OAI_FRAG],
+    ["OpenAI bare key", OAI, OAI_FRAG],
+    ["Anthropic key", ANTHROPIC, "sk-ant-"],
+    ["Slack token", SLACK, "xox"],
+    ["Google API key", `AIza${"a".repeat(35)}`, `AIza${"a".repeat(5)}`],
+    ["JWT", JWT, "eyJhbGci"],
+  ])("redacts %s", (_label, input, secret) => {
+    const out = redactSecrets(input)
+    expect(out).not.toContain(secret)
+    expect(out).toMatch(/\[REDACTED:[a-z]+\]/)
+  })
+
+  test("redacts Stripe-style live secret keys", () => {
+    const prefix = "sk_"
+    const rest = `${"live"}_syntheticStripeKey1234ab`
+    const out = redactSecrets(prefix + rest)
+    expect(out).not.toContain("syntheticStripeKey")
+    expect(out).toContain("[REDACTED:stripe]")
+  })
+
+  test("redacts PEM private key blocks", () => {
+    const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY-----"
+    const out = redactSecrets(`config = ${pem}`)
+    expect(out).not.toContain("MIIEpAIBAAKCAQEA")
+    expect(out).toContain("[REDACTED:pem]")
+  })
+
+  test("redacts URL userinfo credentials", () => {
+    const out = redactSecrets("postgres://admin:s3cretpw@db.example.com:5432/app")
+    expect(out).not.toContain("s3cretpw")
+    expect(out).toContain("[REDACTED:userinfo]")
+    expect(out).toContain("db.example.com")
+  })
+
+  test("redacts Bearer / Basic / Token prefixes", () => {
+    expect(redactSecrets(`Authorization: Bearer ${OAI}`)).toContain("Bearer [REDACTED:openai]")
+    expect(redactSecrets("Authorization: Basic dXNlcjpwYXNzMTIzNDU2Nzg=")).toContain("Basic [REDACTED:basic]")
+    expect(redactSecrets("Token: abcdefgh1234567890")).toContain("[REDACTED:credential]")
+  })
+
+  test("redacts Cookie / Set-Cookie headers", () => {
+    expect(redactSecrets("Cookie: session=abcdefgh1234567890")).not.toContain("abcdefgh")
+    expect(redactSecrets("Set-Cookie: sid=abcdefgh1234567890")).not.toContain("abcdefgh")
+  })
+
+  test("redacts compound env-var names (AWS_SECRET_ACCESS_KEY, DB_PASSWORD, …)", () => {
+    expect(redactSecrets("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")).not.toContain("wJalr")
+    expect(redactSecrets("DB_PASSWORD=hunter2pass")).not.toContain("hunter2")
+    expect(redactSecrets("PGPASSWORD=postgrespass123")).not.toContain("postgrespass")
+    expect(redactSecrets(`OPENAI_API_KEY=${OAI}`)).not.toContain(OAI_FRAG)
+  })
+
+  test("redacts JSON / YAML credential assignments", () => {
+    expect(redactSecrets('{"password": "hunter2pass"}')).not.toContain("hunter2")
+    expect(redactSecrets("api_key: sksynthetic1234567890abcdef1234567890")).not.toContain("sksynthetic")
+  })
+
+  test("redacts truncated PEM blocks (BEGIN with no END)", () => {
+    const truncated = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEAabcdef1234567890"
+    const out = redactSecrets(`config = ${truncated} more text here`)
+    expect(out).not.toContain("MIIEpAIBAAKCAQEAabcdef")
+    expect(out).toContain("[REDACTED:pem]")
+  })
+
+  test("redacts GitLab / NVIDIA / Telegram tokens", () => {
+    expect(redactSecrets(GLPAT)).toContain("[REDACTED:gitlab]")
+    expect(redactSecrets(NVAPI)).toContain("[REDACTED:nvidia]")
+    expect(redactSecrets("123456789:AAH-synthetic-telegram-bot-token-12345")).toContain("[REDACTED:telegram]")
+  })
+
+  test("redacts bare session/cookie assignments", () => {
+    expect(redactSecrets("session=abcdefgh1234567890")).not.toContain("abcdefgh")
+    expect(redactSecrets('{"sid": "abcdefgh1234567890"}')).not.toContain("abcdefgh")
+    expect(redactSecrets("csrf_token=abcdef1234567890abcd")).not.toContain("abcdef1234567890")
+  })
+
+  test("preserves the key name and redacts only the value", () => {
+    const out = redactSecrets("password=hunter2pass")
+    expect(out).toContain("password=")
+    expect(out).not.toContain("hunter2")
+    expect(out).toContain("[REDACTED:credential]")
+  })
+})
+
+describe("redactSecrets — does not overreach", () => {
+  test.each([
+    "bun test",
+    "/repo/sk-internal",
+    "tasks/sk-notes.md",
+    "echo token",
+    "tokenizer = extract()",
+    "PORT=8080",
+    "printf safe",
+    "Run the tests only.",
+    "token count: 5",
+    "el secretario general",
+    "tokenizer for the model",
+    "cd /repo/api_key_utils",
+    "the auth token was rotated",
+    "export GITHUB_TOKEN=$TOKEN",
+    "password=$(cat file)",
+    "password=short",
+    "https://example.com/health",
+    "git@github.com:org/repo.git",
+  ])("leaves %s untouched", (input) => {
+    expect(redactSecrets(input)).toBe(input)
+  })
+})
+
+describe("redactSecrets — robustness", () => {
+  test("is idempotent", () => {
+    const inputs = [
+      `Bearer ${OAI}`,
+      "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      "postgres://admin:s3cretpw@db.example.com:5432/app",
+      "password=hunter2pass and api_key=sksynthetic1234567890abcdef",
+      "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+    ]
+    for (const input of inputs) {
+      const once = redactSecrets(input)
+      expect(redactSecrets(once)).toBe(once)
+    }
+  })
+
+  test("terminates quickly on adversarial inputs (no ReDoS)", () => {
+    const big = Array.from({ length: 2000 }, () => `password = "${"x".repeat(40)}"`).join("\n")
+    const start = Date.now()
+    redactSecrets(big)
+    expect(Date.now() - start).toBeLessThan(1000)
+
+    const start2 = Date.now()
+    redactSecrets("-----BEGIN PRIVATE KEY-----\n" + "x".repeat(50_000))
+    expect(Date.now() - start2).toBeLessThan(1000)
+  })
+
+  test("never leaves a known credential format in the output", () => {
+    const inputs = [AWS_EX, GHP, OAI, `Bearer ${JWT}`]
+    for (const input of inputs) {
+      expect(redactSecrets(input)).not.toContain(input)
+    }
+  })
+})
+
+describe("evidence redaction through buildEvidence", () => {
+  test("secrets in transcript, intent, and request metadata are redacted before reaching the prompt", () => {
+    const messages = normalizeMessages([
+      {
+        info: { id: "u1", role: "user" },
+        parts: [{ type: "text", text: `My token is Bearer ${OAI}, please use it.` }],
+      },
+      {
+        info: { id: "a1", role: "assistant" },
+        parts: [{ type: "tool", tool: "bash", callID: "c1", state: { input: { command: "curl https://example.com" } } }],
+      },
+    ])
+    const transcript = buildTranscript(messages, DEFAULT_CONFIG)
+    const evidence = buildEvidence(
+      {
+        request: request({ metadata: { command: "export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" } }),
+        directory: "/repo",
+        worktree: "/repo",
+        transcript,
+        intentHistory: `USER_INTENT id=u1\nMy token is Bearer ${OAI}`,
+        enrichment: "",
+        sshAudit: [],
+      },
+      DEFAULT_CONFIG,
+    )
+    expect(evidence).not.toContain(OAI_FRAG)
+    expect(evidence).not.toContain("wJalrXUt")
+    expect(evidence).toContain("[REDACTED:openai]")
+    expect(evidence).toContain("[REDACTED:credential]")
+  })
+})
