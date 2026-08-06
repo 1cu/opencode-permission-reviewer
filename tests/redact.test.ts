@@ -100,7 +100,9 @@ describe("redactSecrets — credential formats", () => {
 
   test("redacts Bearer / Basic / Token prefixes", () => {
     expect(redactSecrets(`Authorization: Bearer ${OAI}`)).toContain("Bearer [REDACTED:openai]")
-    expect(redactSecrets("Authorization: Basic dXNlcjpwYXNzMTIzNDU2Nzg=")).toContain("Basic [REDACTED:basic]")
+    expect(redactSecrets("Authorization: Basic dXNlcjpwYXNzMTIzNDU2Nzg=")).toContain(
+      "Basic [REDACTED:basic]",
+    )
     expect(redactSecrets("Token: abcdefgh1234567890")).toContain("[REDACTED:credential]")
   })
 
@@ -110,7 +112,9 @@ describe("redactSecrets — credential formats", () => {
     expect(redactSecrets(`bearer ${opaque}`)).toContain("[REDACTED:bearer]")
     expect(redactSecrets(`bearer ${opaque}`)).not.toContain(opaque)
     expect(redactSecrets(`authorization: bearer ${opaque}`)).not.toContain(opaque)
-    expect(redactSecrets("authorization: basic dXNlcjpwYXNzMTIzNDU2Nzg=")).not.toContain("dXNlcjpwYXNz")
+    expect(redactSecrets("authorization: basic dXNlcjpwYXNzMTIzNDU2Nzg=")).not.toContain(
+      "dXNlcjpwYXNz",
+    )
     expect(redactSecrets(`token ${opaque}`)).toContain("[REDACTED:token]")
     expect(redactSecrets(`token ${opaque}`)).not.toContain(opaque)
   })
@@ -129,7 +133,9 @@ describe("redactSecrets — credential formats", () => {
 
   test("redacts JSON / YAML credential assignments", () => {
     expect(redactSecrets('{"password": "hunter2pass"}')).not.toContain("hunter2")
-    expect(redactSecrets("api_key: sksynthetic1234567890abcdef1234567890")).not.toContain("sksynthetic")
+    expect(redactSecrets("api_key: sksynthetic1234567890abcdef1234567890")).not.toContain(
+      "sksynthetic",
+    )
   })
 
   test("redacts truncated PEM blocks (BEGIN with no END)", () => {
@@ -253,7 +259,14 @@ describe("evidence redaction through buildEvidence", () => {
       },
       {
         info: { id: "a1", role: "assistant" },
-        parts: [{ type: "tool", tool: "bash", callID: "c1", state: { input: { command: "curl https://example.com" } } }],
+        parts: [
+          {
+            type: "tool",
+            tool: "bash",
+            callID: "c1",
+            state: { input: { command: "curl https://example.com" } },
+          },
+        ],
       },
     ])
     const transcript = buildTranscript(messages, DEFAULT_CONFIG)

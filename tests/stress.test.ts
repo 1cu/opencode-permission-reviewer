@@ -45,8 +45,14 @@ describe("stress and adversarial robustness", () => {
     expect(results.filter((result) => result.kind === "deny")).toHaveLength(500)
     expect(client.creates).toHaveLength(1_000)
     expect(client.replies).toHaveLength(1_000)
-    expect(client.replies.filter((item) => ((item as { body: { reply: string } }).body.reply === "once"))).toHaveLength(500)
-    expect(client.replies.filter((item) => ((item as { body: { reply: string } }).body.reply === "reject"))).toHaveLength(500)
+    expect(
+      client.replies.filter((item) => (item as { body: { reply: string } }).body.reply === "once"),
+    ).toHaveLength(500)
+    expect(
+      client.replies.filter(
+        (item) => (item as { body: { reply: string } }).body.reply === "reject",
+      ),
+    ).toHaveLength(500)
     expect(client.uiStatuses.filter((status) => status.phase === "reviewing")).toHaveLength(1_000)
     expect(client.uiStatuses.filter((status) => status.phase === "approved")).toHaveLength(500)
     expect(client.uiStatuses.filter((status) => status.phase === "denied")).toHaveLength(500)
@@ -174,7 +180,9 @@ describe("stress and adversarial robustness", () => {
     const directory = await mkdtemp("/tmp/opencode/approval-reviewer-git-stress-")
     try {
       await execFileAsync("git", ["init", "-b", "stress"], { cwd: directory })
-      await execFileAsync("git", ["config", "user.email", "reviewer@example.invalid"], { cwd: directory })
+      await execFileAsync("git", ["config", "user.email", "reviewer@example.invalid"], {
+        cwd: directory,
+      })
       await execFileAsync("git", ["config", "user.name", "Reviewer Stress"], { cwd: directory })
       await Promise.all(
         Array.from({ length: 100 }, (_, item) =>

@@ -64,7 +64,14 @@ const VALUE_OPTIONS: Record<string, Set<string>> = {
   nice: new Set(["-n", "--adjustment"]),
   time: new Set(["-o", "--output", "-f"]),
   ionice: new Set(["-c", "-n"]),
-  setpriv: new Set(["--reuid", "--regid", "--inh-caps", "--bounding-set", "--ambient-caps", "--clear-groups"]),
+  setpriv: new Set([
+    "--reuid",
+    "--regid",
+    "--inh-caps",
+    "--bounding-set",
+    "--ambient-caps",
+    "--clear-groups",
+  ]),
   command: new Set(),
   nohup: new Set(),
   stdbuf: new Set(),
@@ -150,7 +157,7 @@ export function lexSegments(command: string): ShellSegment[] {
       } else if (c === "\\" && i + 1 < command.length) {
         const next = command[i + 1]!
         raw += next
-        if ("$`\"\\n".includes(next)) {
+        if ('$`"\\n'.includes(next)) {
           value += next === "n" ? "\n" : next
           i += 2
           continue
@@ -338,7 +345,13 @@ function findCommandString(tokens: ShellToken[], start: number): string | null {
       return t.slice("--command=".length)
     }
     // Combined short flag containing `c` (e.g. `bash -ic '...'`); value is next token.
-    if (!endOfFlags && t.startsWith("-") && !t.startsWith("--") && t.length > 1 && t.includes("c")) {
+    if (
+      !endOfFlags &&
+      t.startsWith("-") &&
+      !t.startsWith("--") &&
+      t.length > 1 &&
+      t.includes("c")
+    ) {
       return i + 1 < tokens.length ? tokens[i + 1]!.value : null
     }
     i += 1

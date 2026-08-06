@@ -37,7 +37,9 @@ export function permissionAction(request: PermissionRequest): string {
     metadata.path,
     request.patterns.join(", "),
   ]
-  const detail = candidates.find((value): value is string => typeof value === "string" && value.trim().length > 0)
+  const detail = candidates.find(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  )
   const prefix = request.permission === "bash" && detail ? "$ " : ""
   return boundedText(`${prefix}${detail ?? request.permission}`, 500)
 }
@@ -108,7 +110,12 @@ export function parseUiStatus(value: unknown): ReviewUiStatus | undefined {
   if (typeof value.permission !== "string" || typeof value.action !== "string") return
   if (typeof value.model !== "string" || typeof value.variant !== "string") return
   if (typeof value.emittedAt !== "number" || !Number.isFinite(value.emittedAt)) return
-  if (typeof value.timeoutMs !== "number" || !Number.isFinite(value.timeoutMs) || value.timeoutMs < 0) return
+  if (
+    typeof value.timeoutMs !== "number" ||
+    !Number.isFinite(value.timeoutMs) ||
+    value.timeoutMs < 0
+  )
+    return
   if (value.reason !== undefined && typeof value.reason !== "string") return
   if (value.decision !== undefined && !isDecision(value.decision)) return
 

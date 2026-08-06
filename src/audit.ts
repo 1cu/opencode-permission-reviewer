@@ -30,7 +30,10 @@ export function createAuditWriter(
       ...record,
       reason: boundedReason(record.reason),
     }
-    await appendFile(path, `${JSON.stringify(sanitized)}\n`, { encoding: "utf8", mode: 0o600 }).catch((error) => {
+    await appendFile(path, `${JSON.stringify(sanitized)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    }).catch((error) => {
       logger?.("failed to append audit record", {
         path,
         error: error instanceof Error ? error.message : String(error),

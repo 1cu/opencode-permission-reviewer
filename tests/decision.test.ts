@@ -44,12 +44,18 @@ describe("decision parsing and invariants", () => {
   })
 
   test("the model can never auto-approve high risk with low or unknown authorization", () => {
-    expect(enforceDecision(decision("allow", { risk_level: "high", user_authorization: "low" }), DEFAULT_CONFIG).kind).toBe(
-      "escalate",
-    )
-    expect(enforceDecision(decision("allow", { risk_level: "high", user_authorization: "unknown" }), DEFAULT_CONFIG).kind).toBe(
-      "escalate",
-    )
+    expect(
+      enforceDecision(
+        decision("allow", { risk_level: "high", user_authorization: "low" }),
+        DEFAULT_CONFIG,
+      ).kind,
+    ).toBe("escalate")
+    expect(
+      enforceDecision(
+        decision("allow", { risk_level: "high", user_authorization: "unknown" }),
+        DEFAULT_CONFIG,
+      ).kind,
+    ).toBe("escalate")
     // The exact contradiction the comparative analysis flagged.
     const flagged = enforceDecision(
       decision("allow", { risk_level: "high", user_authorization: "unknown", confidence: 0.95 }),
@@ -61,37 +67,61 @@ describe("decision parsing and invariants", () => {
 
   test("high risk with at least medium authorization is approved when the model allows", () => {
     expect(
-      enforceDecision(decision("allow", { risk_level: "high", user_authorization: "medium" }), DEFAULT_CONFIG).kind,
+      enforceDecision(
+        decision("allow", { risk_level: "high", user_authorization: "medium" }),
+        DEFAULT_CONFIG,
+      ).kind,
     ).toBe("allow")
     expect(
-      enforceDecision(decision("allow", { risk_level: "high", user_authorization: "high" }), DEFAULT_CONFIG).kind,
+      enforceDecision(
+        decision("allow", { risk_level: "high", user_authorization: "high" }),
+        DEFAULT_CONFIG,
+      ).kind,
     ).toBe("allow")
   })
 
   test("medium risk with unknown authorization escalates; medium+low is deliberately approved", () => {
     expect(
-      enforceDecision(decision("allow", { risk_level: "medium", user_authorization: "unknown" }), DEFAULT_CONFIG).kind,
+      enforceDecision(
+        decision("allow", { risk_level: "medium", user_authorization: "unknown" }),
+        DEFAULT_CONFIG,
+      ).kind,
     ).toBe("escalate")
     expect(
-      enforceDecision(decision("allow", { risk_level: "medium", user_authorization: "low" }), DEFAULT_CONFIG).kind,
+      enforceDecision(
+        decision("allow", { risk_level: "medium", user_authorization: "low" }),
+        DEFAULT_CONFIG,
+      ).kind,
     ).toBe("allow")
   })
 
   test("low risk never escalates on authorization alone", () => {
     expect(
-      enforceDecision(decision("allow", { risk_level: "low", user_authorization: "unknown" }), DEFAULT_CONFIG).kind,
+      enforceDecision(
+        decision("allow", { risk_level: "low", user_authorization: "unknown" }),
+        DEFAULT_CONFIG,
+      ).kind,
     ).toBe("allow")
     expect(
-      enforceDecision(decision("allow", { risk_level: "low", user_authorization: "low" }), DEFAULT_CONFIG).kind,
+      enforceDecision(
+        decision("allow", { risk_level: "low", user_authorization: "low" }),
+        DEFAULT_CONFIG,
+      ).kind,
     ).toBe("allow")
   })
 
   test("the gate never relaxes a deny or escalate, regardless of risk and authorization", () => {
     expect(
-      enforceDecision(decision("deny", { risk_level: "high", user_authorization: "unknown" }), DEFAULT_CONFIG).kind,
+      enforceDecision(
+        decision("deny", { risk_level: "high", user_authorization: "unknown" }),
+        DEFAULT_CONFIG,
+      ).kind,
     ).toBe("deny")
     expect(
-      enforceDecision(decision("escalate", { risk_level: "high", user_authorization: "unknown" }), DEFAULT_CONFIG).kind,
+      enforceDecision(
+        decision("escalate", { risk_level: "high", user_authorization: "unknown" }),
+        DEFAULT_CONFIG,
+      ).kind,
     ).toBe("escalate")
   })
 
@@ -149,14 +179,21 @@ describe("configuration", () => {
   })
 
   test("bounds unsafe numeric options", () => {
-    const value = resolveConfig({ timeoutMs: 1, confidenceThreshold: -10, transcriptMessages: 1_000_000 })
+    const value = resolveConfig({
+      timeoutMs: 1,
+      confidenceThreshold: -10,
+      transcriptMessages: 1_000_000,
+    })
     expect(value.timeoutMs).toBe(5_000)
     expect(value.confidenceThreshold).toBe(0.5)
     expect(value.transcriptMessages).toBe(100)
   })
 
   test("splits provider and model without losing nested model IDs", () => {
-    expect(splitModel("openai/gpt-5.6-luna")).toEqual({ providerID: "openai", modelID: "gpt-5.6-luna" })
+    expect(splitModel("openai/gpt-5.6-luna")).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.6-luna",
+    })
     expect(() => splitModel("invalid")).toThrow()
   })
 })

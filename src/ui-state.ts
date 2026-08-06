@@ -65,11 +65,15 @@ export class ReviewUiState {
 
   all(): ReviewUiStatus[] {
     return [...this.requests.values()].sort(
-      (left, right) => left.emittedAt - right.emittedAt || left.requestID.localeCompare(right.requestID),
+      (left, right) =>
+        left.emittedAt - right.emittedAt || left.requestID.localeCompare(right.requestID),
     )
   }
 
-  activeFor(sessionID: string, parentOf: (sessionID: string) => string | undefined): ReviewUiStatus | undefined {
+  activeFor(
+    sessionID: string,
+    parentOf: (sessionID: string) => string | undefined,
+  ): ReviewUiStatus | undefined {
     return this.all().find((status) => {
       if (status.sessionID === sessionID) return true
       let current = parentOf(status.sessionID)

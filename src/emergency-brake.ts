@@ -139,7 +139,11 @@ function isFindRootDestruction(command: string): boolean {
           // First non-placeholder token after -exec is the executable; if it is
           // `rm` with recursive+force flags, find destroys its matches.
           let j = i + 1
-          while (j < effective.length && (effective[j]!.value === "{" || effective[j]!.value === "}")) j += 1
+          while (
+            j < effective.length &&
+            (effective[j]!.value === "{" || effective[j]!.value === "}")
+          )
+            j += 1
           if (j < effective.length && shellBasename(effective[j]!.value) === "rm") {
             const { recursive, force } = hasRmFlags(effective.slice(j))
             if (recursive && force) hasExecRm = true
@@ -162,14 +166,14 @@ function isFindRootDestruction(command: string): boolean {
  * executable) are handled correctly.
  */
 const MKFS_FAMILY = /^mkfs(?:\.[a-z0-9]+)?$/
-const UNCONDITIONAL_DEVICE_TOOLS = new Set(["mke2fs", "mkswap", "shred"])
 /**
  * Whitelist of real block-device path prefixes so that pseudo-devices
  * (`/dev/null`, `/dev/zero`, `/dev/shm/…`, `/dev/fd/…`, etc.) — which sit under
  * `/dev/` but are not disks — do not trip the brake on legitimate patterns
  * like `dd … of=/dev/null` or `shred /dev/shm/scratch`.
  */
-const BLOCK_DEVICE_RE = /^\/dev\/(?:sd|hd|vd|xvd|nvme|mmcblk|loop|md|dm-|zram|drbd|bcache|mapper\/|disk\/by-)/
+const BLOCK_DEVICE_RE =
+  /^\/dev\/(?:sd|hd|vd|xvd|nvme|mmcblk|loop|md|dm-|zram|drbd|bcache|mapper\/|disk\/by-)/
 
 function isBlockDeviceTarget(value: string): boolean {
   return BLOCK_DEVICE_RE.test(value)
@@ -177,7 +181,9 @@ function isBlockDeviceTarget(value: string): boolean {
 
 /** Whether a short-flag cluster (e.g. `-af`) contains a given flag letter. */
 function shortFlagClusterIncludes(value: string, letter: string): boolean {
-  return value.startsWith("-") && !value.startsWith("--") && value.length > 1 && value.includes(letter)
+  return (
+    value.startsWith("-") && !value.startsWith("--") && value.length > 1 && value.includes(letter)
+  )
 }
 
 function isDeviceDestruction(command: string): boolean {
@@ -230,7 +236,13 @@ function isDeviceDestruction(command: string): boolean {
       if (base === "sgdisk" && targetsBlock) {
         const destructive = args.some((t) => {
           const v = t.value
-          return v === "--zap-all" || v === "-Z" || v === "--zap" || v === "-z" || v.startsWith("--delete")
+          return (
+            v === "--zap-all" ||
+            v === "-Z" ||
+            v === "--zap" ||
+            v === "-z" ||
+            v.startsWith("--delete")
+          )
         })
         const deleteShort = args.some((t) => t.value === "-d" || t.value === "--delete")
         if (destructive || (deleteShort && args.some((t) => /^[0-9]+$/.test(t.value)))) return true
@@ -268,6 +280,7 @@ export function emergencyBrakeReason(request: PermissionRequest): string | undef
   if (isRmRootDestruction(command)) return ROOT_DESTRUCTION_REASON
   if (isFindRootDestruction(command)) return ROOT_DESTRUCTION_REASON
   if (isDeviceDestruction(command)) return ROOT_DESTRUCTION_REASON
-  if (ROOT_DESTRUCTION_REGEX.some((pattern) => pattern.test(command))) return ROOT_DESTRUCTION_REASON
+  if (ROOT_DESTRUCTION_REGEX.some((pattern) => pattern.test(command)))
+    return ROOT_DESTRUCTION_REASON
   if (OBVIOUS_SECRET_EXPORT.some((pattern) => pattern.test(command))) return SECRET_EXPORT_REASON
 }

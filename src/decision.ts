@@ -12,7 +12,8 @@ export function parseDecision(value: unknown): ReviewDecision | undefined {
   if (!isRecord(value)) return
   if (typeof value.outcome !== "string" || !OUTCOMES.has(value.outcome)) return
   if (typeof value.risk_level !== "string" || !RISKS.has(value.risk_level)) return
-  if (typeof value.user_authorization !== "string" || !AUTHORIZATIONS.has(value.user_authorization)) return
+  if (typeof value.user_authorization !== "string" || !AUTHORIZATIONS.has(value.user_authorization))
+    return
   if (typeof value.rationale !== "string") return
   const rationale = value.rationale.trim()
   if (rationale.length < 3 || rationale.length > 2_000) return
@@ -28,7 +29,10 @@ export function parseDecision(value: unknown): ReviewDecision | undefined {
   }
 }
 
-export function enforceDecision(decision: ReviewDecision, config: ReviewerConfig): ReviewExecutionResult {
+export function enforceDecision(
+  decision: ReviewDecision,
+  config: ReviewerConfig,
+): ReviewExecutionResult {
   if (decision.risk_level === "critical" && decision.outcome !== "deny") {
     return {
       kind: "escalate",
@@ -64,7 +68,10 @@ export function enforceDecision(decision: ReviewDecision, config: ReviewerConfig
   // authorization must not be auto-approved.
   if (decision.outcome === "allow") {
     const { risk_level: risk, user_authorization: auth } = decision
-    if ((risk === "high" && (auth === "low" || auth === "unknown")) || (risk === "medium" && auth === "unknown")) {
+    if (
+      (risk === "high" && (auth === "low" || auth === "unknown")) ||
+      (risk === "medium" && auth === "unknown")
+    ) {
       return {
         kind: "escalate",
         decision,

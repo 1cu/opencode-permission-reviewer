@@ -1,4 +1,9 @@
-import type { MessageWithParts, PermissionRequest, ReviewEnvelope, ReviewerConfig } from "./types.ts"
+import type {
+  MessageWithParts,
+  PermissionRequest,
+  ReviewEnvelope,
+  ReviewerConfig,
+} from "./types.ts"
 import { redactSecrets } from "./redact.ts"
 
 function truncate(value: string, max: number): string {
@@ -156,7 +161,10 @@ export function buildEvidence(envelope: ReviewEnvelope, config: ReviewerConfig):
   ].join("\n\n")
   return truncate(
     evidence,
-    config.maxContextChars + config.maxPartChars * 2 + config.maxEnrichmentChars + config.maxIntentChars,
+    config.maxContextChars +
+      config.maxPartChars * 2 +
+      config.maxEnrichmentChars +
+      config.maxIntentChars,
   )
 }
 
@@ -167,7 +175,9 @@ export function normalizeMessages(value: unknown): MessageWithParts[] {
     const record = item as Record<string, unknown>
     const info = typeof record.info === "object" && record.info !== null ? record.info : {}
     const parts = Array.isArray(record.parts)
-      ? record.parts.filter((part): part is Record<string, unknown> => typeof part === "object" && part !== null)
+      ? record.parts.filter(
+          (part): part is Record<string, unknown> => typeof part === "object" && part !== null,
+        )
       : []
     return [{ info: info as MessageWithParts["info"], parts }]
   })

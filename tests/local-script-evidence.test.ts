@@ -14,7 +14,9 @@ async function fixture(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })))
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })),
+  )
 })
 
 describe("local script evidence enrichment", () => {

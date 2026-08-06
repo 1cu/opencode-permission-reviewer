@@ -84,12 +84,14 @@ const RULES: ReadonlyArray<{ re: RegExp; replace: (match: string, groups: string
   // Cookie headers.
   {
     re: /(^|[^A-Za-z0-9_])(Cookie|Set-Cookie)(\s*[:=]\s*)(["']?)(?!\[REDACTED)([A-Za-z0-9._~+/%=-]{8,})(["']?)/g,
-    replace: (_m, g) => `${g[0] ?? ""}${g[1] ?? ""}${g[2] ?? ""}${g[3] ?? ""}${REDACT("credential")}${g[5] ?? ""}`,
+    replace: (_m, g) =>
+      `${g[0] ?? ""}${g[1] ?? ""}${g[2] ?? ""}${g[3] ?? ""}${REDACT("credential")}${g[5] ?? ""}`,
   },
   // Authorization-style headers and JSON/YAML keys.
   {
     re: /(^|[^A-Za-z0-9_])(authorization|proxy-authorization|x-api-key|x-auth-token)(\s*[:=]\s*)(["']?)(?!\[REDACTED)([A-Za-z0-9._~+/-]{8,})(["']?)/gi,
-    replace: (_m, g) => `${g[0] ?? ""}${g[1] ?? ""}${g[2] ?? ""}${g[3] ?? ""}${REDACT("credential")}${g[5] ?? ""}`,
+    replace: (_m, g) =>
+      `${g[0] ?? ""}${g[1] ?? ""}${g[2] ?? ""}${g[3] ?? ""}${REDACT("credential")}${g[5] ?? ""}`,
   },
   // Generic credential assignments (covers compound env names like DB_PASSWORD,
   // AWS_SECRET_ACCESS_KEY, GITHUB_TOKEN via the underscore-tolerant prefix).
@@ -98,7 +100,8 @@ const RULES: ReadonlyArray<{ re: RegExp; replace: (match: string, groups: string
   // service_credentials) are caught alongside their UPPER_CASE counterparts.
   {
     re: /(^|[^A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]*(?:SECRET|PASSWORD|TOKEN|API_KEY|ACCESS_KEY|PRIVATE_KEY|CLIENT_SECRET|PASSPHRASE|CREDENTIALS?)[A-Za-z0-9_]*)(\s*[:=]\s*)(["']?)(?!\[REDACTED)([^$`{}()\s"'#[\]]{8,})(["']?)/gi,
-    replace: (_m, g) => `${g[0] ?? ""}${g[1] ?? ""}${g[2] ?? ""}${g[3] ?? ""}${REDACT("credential")}${g[5] ?? ""}`,
+    replace: (_m, g) =>
+      `${g[0] ?? ""}${g[1] ?? ""}${g[2] ?? ""}${g[3] ?? ""}${REDACT("credential")}${g[5] ?? ""}`,
   },
   // Then lowercase credential keywords as standalone-ish keys (also catches the
   // bare forms private_key / passphrase / credential that the compound rule

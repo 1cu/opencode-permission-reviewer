@@ -1,0 +1,7 @@
+dist/
+node_modules/
+coverage/
+bun.lock
+tests/live-fixture/
+*.lock
+*.log

@@ -34,13 +34,19 @@ describe("TUI status protocol", () => {
     expect(decodeUiStatus("session.new")).toBeUndefined()
     expect(decodeUiStatus(`${UI_COMMAND_PREFIX}%%%`)).toBeUndefined()
     expect(decodeUiStatus(`${UI_COMMAND_PREFIX}${"a".repeat(16_001)}`)).toBeUndefined()
-    const invalid = Buffer.from(JSON.stringify({ version: 1, phase: "approved" })).toString("base64url")
+    const invalid = Buffer.from(JSON.stringify({ version: 1, phase: "approved" })).toString(
+      "base64url",
+    )
     expect(decodeUiStatus(`${UI_COMMAND_PREFIX}${invalid}`)).toBeUndefined()
   })
 
   test("uses the concrete command and bounds untrusted display text", () => {
-    expect(permissionAction(request({ metadata: { command: "printf safe" } }))).toBe("$ printf safe")
-    const action = permissionAction(request({ metadata: { command: `x${" ".repeat(20)}${"y".repeat(800)}` } }))
+    expect(permissionAction(request({ metadata: { command: "printf safe" } }))).toBe(
+      "$ printf safe",
+    )
+    const action = permissionAction(
+      request({ metadata: { command: `x${" ".repeat(20)}${"y".repeat(800)}` } }),
+    )
     expect(action.length).toBeLessThanOrEqual(500)
     expect(action).not.toContain("  ")
   })
@@ -85,7 +91,11 @@ describe("TUI state machine", () => {
 
   test("reveals manual permissions and removes them after the human replies", () => {
     const state = new ReviewUiState(options)
-    const status = createUiStatus(request(), "manual", { ...options, emittedAt: 2_000, reason: "Low confidence" })
+    const status = createUiStatus(request(), "manual", {
+      ...options,
+      emittedAt: 2_000,
+      reason: "Low confidence",
+    })
     state.apply(status)
     expect(state.get("per_1")?.phase).toBe("manual")
     state.replied("per_1")
@@ -94,7 +104,11 @@ describe("TUI state machine", () => {
 
   test("dismisses automatic results after their visual dwell time", () => {
     const state = new ReviewUiState(options)
-    const approved = createUiStatus(request(), "approved", { ...options, emittedAt: 1_000, reason: "Safe" })
+    const approved = createUiStatus(request(), "approved", {
+      ...options,
+      emittedAt: 1_000,
+      reason: "Safe",
+    })
     state.apply(approved)
     expect(state.dismissResults(5_999)).toHaveLength(0)
     expect(state.dismissResults(6_000)).toEqual(["per_1"])
@@ -112,9 +126,12 @@ describe("TUI state machine", () => {
   test("finds child-session requests from their visible parent and resists parent cycles", () => {
     const state = new ReviewUiState(options)
     state.asked(request({ sessionID: "ses_child" }), 1_000)
-    expect(state.activeFor("ses_parent", (id) => (id === "ses_child" ? "ses_parent" : undefined))?.requestID).toBe(
-      "per_1",
-    )
-    expect(state.activeFor("ses_other", (id) => (id === "ses_child" ? "ses_cycle" : "ses_child"))).toBeUndefined()
+    expect(
+      state.activeFor("ses_parent", (id) => (id === "ses_child" ? "ses_parent" : undefined))
+        ?.requestID,
+    ).toBe("per_1")
+    expect(
+      state.activeFor("ses_other", (id) => (id === "ses_child" ? "ses_cycle" : "ses_child")),
+    ).toBeUndefined()
   })
 })

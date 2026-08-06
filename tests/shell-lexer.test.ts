@@ -63,7 +63,11 @@ describe("shell lexer", () => {
   test("skips shell keywords at position 0", () => {
     expect(firstExecutables("{ rm -rf /; }")).toEqual([["rm", "-rf", "/"]])
     expect(firstExecutables("(rm -rf /)")).toEqual([["rm", "-rf", "/"]])
-    expect(firstExecutables("if true; then rm -rf /; fi")).toEqual([["if", "true"], ["rm", "-rf", "/"], ["fi"]])
+    expect(firstExecutables("if true; then rm -rf /; fi")).toEqual([
+      ["if", "true"],
+      ["rm", "-rf", "/"],
+      ["fi"],
+    ])
   })
 
   test("leaves plain executables untouched", () => {

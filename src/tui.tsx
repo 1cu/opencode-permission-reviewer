@@ -24,7 +24,8 @@ function notifyManual(api: TuiPluginApi, status: ReviewUiStatus): void {
   api.ui.toast({
     variant: "warning",
     title: "Manual review required",
-    message: status.reason ?? "The reviewer could not decide. This permission now needs your approval.",
+    message:
+      status.reason ?? "The reviewer could not decide. This permission now needs your approval.",
     duration: 8_000,
   })
 }

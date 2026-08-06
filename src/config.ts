@@ -29,9 +29,18 @@ function boundedNumber(value: unknown, fallback: number, min: number, max: numbe
 
 export function resolveConfig(options: Record<string, unknown> | undefined): ReviewerConfig {
   const source = options ?? {}
-  const model = typeof source.model === "string" && source.model.includes("/") ? source.model : DEFAULT_CONFIG.model
-  const variant = typeof source.variant === "string" && source.variant.length > 0 ? source.variant : DEFAULT_CONFIG.variant
-  const policy = typeof source.policy === "string" && source.policy.trim().length > 0 ? source.policy.trim() : undefined
+  const model =
+    typeof source.model === "string" && source.model.includes("/")
+      ? source.model
+      : DEFAULT_CONFIG.model
+  const variant =
+    typeof source.variant === "string" && source.variant.length > 0
+      ? source.variant
+      : DEFAULT_CONFIG.variant
+  const policy =
+    typeof source.policy === "string" && source.policy.trim().length > 0
+      ? source.policy.trim()
+      : undefined
   const auditPath =
     typeof source.auditPath === "string" && source.auditPath.trim().length > 0
       ? source.auditPath.trim()
@@ -41,7 +50,12 @@ export function resolveConfig(options: Record<string, unknown> | undefined): Rev
     model,
     variant,
     timeoutMs: boundedInteger(source.timeoutMs, DEFAULT_CONFIG.timeoutMs, 5_000, 600_000),
-    maxContextChars: boundedInteger(source.maxContextChars, DEFAULT_CONFIG.maxContextChars, 4_000, 200_000),
+    maxContextChars: boundedInteger(
+      source.maxContextChars,
+      DEFAULT_CONFIG.maxContextChars,
+      4_000,
+      200_000,
+    ),
     maxPartChars: boundedInteger(source.maxPartChars, DEFAULT_CONFIG.maxPartChars, 500, 50_000),
     maxEnrichmentChars: boundedInteger(
       source.maxEnrichmentChars,
@@ -49,10 +63,25 @@ export function resolveConfig(options: Record<string, unknown> | undefined): Rev
       1_000,
       100_000,
     ),
-    maxIntentChars: boundedInteger(source.maxIntentChars, DEFAULT_CONFIG.maxIntentChars, 1_000, 50_000),
-    transcriptMessages: boundedInteger(source.transcriptMessages, DEFAULT_CONFIG.transcriptMessages, 1, 100),
+    maxIntentChars: boundedInteger(
+      source.maxIntentChars,
+      DEFAULT_CONFIG.maxIntentChars,
+      1_000,
+      50_000,
+    ),
+    transcriptMessages: boundedInteger(
+      source.transcriptMessages,
+      DEFAULT_CONFIG.transcriptMessages,
+      1,
+      100,
+    ),
     intentMessages: boundedInteger(source.intentMessages, DEFAULT_CONFIG.intentMessages, 1, 50),
-    historyMessages: boundedInteger(source.historyMessages, DEFAULT_CONFIG.historyMessages, 20, 500),
+    historyMessages: boundedInteger(
+      source.historyMessages,
+      DEFAULT_CONFIG.historyMessages,
+      20,
+      500,
+    ),
     confidenceThreshold: boundedNumber(
       source.confidenceThreshold,
       DEFAULT_CONFIG.confidenceThreshold,

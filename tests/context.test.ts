@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { DEFAULT_CONFIG } from "../src/config.ts"
-import { buildEvidence, buildIntentHistory, buildTranscript, normalizeMessages } from "../src/context.ts"
+import {
+  buildEvidence,
+  buildIntentHistory,
+  buildTranscript,
+  normalizeMessages,
+} from "../src/context.ts"
 import { buildReviewerPrompt, REVIEWER_SYSTEM_PROMPT } from "../src/policy.ts"
 import { request } from "./helpers.ts"
 
@@ -10,7 +15,9 @@ describe("review evidence", () => {
       { info: { id: "u1", role: "user" }, parts: [{ type: "text", text: "Run the tests only." }] },
       {
         info: { id: "a1", role: "assistant" },
-        parts: [{ type: "tool", tool: "bash", callID: "c1", state: { input: { command: "bun test" } } }],
+        parts: [
+          { type: "tool", tool: "bash", callID: "c1", state: { input: { command: "bun test" } } },
+        ],
       },
     ])
     const transcript = buildTranscript(messages, DEFAULT_CONFIG)
@@ -100,7 +107,12 @@ describe("review evidence", () => {
     const messages = normalizeMessages(
       Array.from({ length: 20 }, (_, index) => ({
         info: { id: `u_${index}`, role: "user" },
-        parts: [{ type: "text", text: `${index === 19 ? "LATEST_REQUEST" : "older"}-${index}-${"x".repeat(300)}` }],
+        parts: [
+          {
+            type: "text",
+            text: `${index === 19 ? "LATEST_REQUEST" : "older"}-${index}-${"x".repeat(300)}`,
+          },
+        ],
       })),
     )
     const intent = buildIntentHistory(messages, {
