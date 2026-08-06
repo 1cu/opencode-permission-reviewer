@@ -1,7 +1,12 @@
 import { DEFAULT_CONFIG } from "../src/config.ts"
 import type { OpenCodeClientLike, RuntimeContext } from "../src/runtime.ts"
 import { ApprovalReviewerRuntime } from "../src/runtime.ts"
-import type { PermissionRequest, ReviewAuditRecord, ReviewDecision, ReviewerConfig } from "../src/types.ts"
+import type {
+  PermissionRequest,
+  ReviewAuditRecord,
+  ReviewDecision,
+  ReviewerConfig,
+} from "../src/types.ts"
 import type { ReviewUiStatus } from "../src/ui-protocol.ts"
 
 export function decision(
@@ -12,7 +17,10 @@ export function decision(
     outcome,
     risk_level: outcome === "deny" ? "high" : "low",
     user_authorization: outcome === "allow" ? "high" : "low",
-    rationale: outcome === "allow" ? "The action is narrow, reversible, and explicitly requested." : "The action has unsafe unrequested effects.",
+    rationale:
+      outcome === "allow"
+        ? "The action is narrow, reversible, and explicitly requested."
+        : "The action has unsafe unrequested effects.",
     confidence: 0.95,
     ...overrides,
   }
@@ -49,7 +57,14 @@ export class MockClient implements OpenCodeClientLike {
     },
     {
       info: { id: "msg_assistant", role: "assistant" },
-      parts: [{ type: "tool", tool: "bash", callID: "call_1", state: { input: { command: "printf safe" } } }],
+      parts: [
+        {
+          type: "tool",
+          tool: "bash",
+          callID: "call_1",
+          state: { input: { command: "printf safe" } },
+        },
+      ],
     },
   ]
   createError?: unknown
@@ -57,6 +72,7 @@ export class MockClient implements OpenCodeClientLike {
   promptError?: unknown
   replyError?: unknown
   publishStatusError?: unknown
+  toolIdsError?: unknown
   private sessionCounter = 0
 
   session: OpenCodeClientLike["session"]
@@ -90,6 +106,7 @@ export class MockClient implements OpenCodeClientLike {
     this.tool = {
       ids: async (options?: unknown) => {
         this.toolQueries.push(options)
+        if (this.toolIdsError !== undefined) return { error: this.toolIdsError }
         return { data: ["bash", "read", "write", "webfetch", "task"] }
       },
     }
