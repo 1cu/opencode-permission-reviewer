@@ -16,20 +16,7 @@ import { extractHeredocs } from "./heredoc-extractor.ts"
  */
 
 /** Redirection operators recognized by the static extractor. */
-const REDIRECTION_OPS = new Set([
-  ">",
-  ">>",
-  "<",
-  "<<",
-  ">&",
-  "2>",
-  "&>",
-  "1>",
-  "2>>",
-  "&>>",
-  ">>",
-  "&",
-])
+const REDIRECTION_OPS = new Set([">", ">>", "<", "<<", ">&", "2>", "&>", "1>", "2>>", "&>>"])
 
 /** Parse a raw bash command into the reusable structure. */
 export function parseCommand(rawCommand: string): ParsedCommand {
@@ -103,11 +90,11 @@ function isQuoted(value: string, raw: string): boolean {
   return (head === "'" || head === '"') && head === tail
 }
 
-/** Whether the raw command contains dynamic constructs the lexer leaves intact. */
+/** Whether the raw command contains dynamic constructs the lexer leaves intact.
+ *  Command substitution (`$(...)` or bare backticks) makes analysis OPAQUE;
+ *  variables and globs make it PARTIAL. */
 function looksDynamic(command: string): boolean {
-  // Command substitution, arithmetic, unquoted variable expansion, process
-  // substitution, and globs all prevent full static analysis.
-  return /\$\(|`\$|\$\{| \$[A-Za-z_]|[?*]\s|<\(|>\(|\$\(\(|\[\[/.test(command)
+  return /\$\(|`|\$\{|[^'"]\$[A-Za-z_]|[?*]\s|<\(|>\(|\[\[/.test(command)
 }
 
 /** Whether a token list itself carries dynamic markers. */

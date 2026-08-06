@@ -499,8 +499,8 @@ export function analyzeCapability(
       }
     }
     if (PRIVILEGE_WRAPPERS.has(base)) {
-      // Already detected on the segment head above; wrappers are peeled by the
-      // lexer so `effective` starts at the real executable. Kept for safety.
+      // Privilege wrappers were already detected on the segment head above;
+      // the lexer peels them so `effective` starts at the real executable.
     }
     if (SERVICE_MANAGERS.has(base)) {
       persistence = true

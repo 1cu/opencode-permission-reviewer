@@ -7,7 +7,7 @@ beforeAll(async () => {
   await mkdir("/tmp/opencode", { recursive: true })
 })
 
-describe("characterization gaps (0.6 prereq)", () => {
+describe("characterization gaps (baseline prereq)", () => {
   test("session.create transport failure escalates without reviewer call", async () => {
     const client = new MockClient()
     client.createError = { message: "database unavailable" }
@@ -338,5 +338,65 @@ describe("actor-aware context threading", () => {
     const audits = (harness.ctx as unknown as { auditRecords: ReviewAuditRecord[] }).auditRecords
     expect(audits).toHaveLength(1)
     expect(audits[0]!.capability).toBeUndefined()
+  })
+
+  test("policy trace appears in audit records for bash requests", async () => {
+    const harness = runtime()
+    await harness.runtime.process(
+      request({ permission: "bash", metadata: { command: "echo hello" } }),
+    )
+    const audits = (harness.ctx as unknown as { auditRecords: ReviewAuditRecord[] }).auditRecords
+    expect(audits).toHaveLength(1)
+    expect(audits[0]!.policyTrace).toMatchObject({
+      finalRoute: "review",
+      mode: "observe",
+    })
+    expect(audits[0]!.policyTrace!.effectivePolicyHash).toHaveLength(16)
+  })
+
+  test("enforce mode with a deny rule skips the LLM and returns deny", async () => {
+    const client = new MockClient()
+    client.nextStructured = decision("allow")
+    const harness = runtime(client, {
+      enforcementMode: "enforce",
+      policyRules: [
+        {
+          id: "deny-all-bash",
+          source: "global",
+          when: { actionClass: ["read-only"] },
+          effect: "deny",
+          reason: "test deny rule",
+        },
+      ],
+    })
+    const result = await harness.runtime.process(
+      request({ permission: "bash", metadata: { command: "echo safe" } }),
+    )
+    expect(result.kind).toBe("deny")
+    expect(result.reason).toContain("Declarative policy route: deny")
+    // No LLM call should have been made.
+    expect(client.prompts).toHaveLength(0)
+  })
+
+  test("enforce mode with a manual rule skips the LLM and escalates", async () => {
+    const client = new MockClient()
+    const harness = runtime(client, {
+      enforcementMode: "enforce",
+      policyRules: [
+        {
+          id: "manual-bash",
+          source: "global",
+          when: { actionClass: ["read-only"] },
+          effect: "manual",
+          reason: "test manual rule",
+        },
+      ],
+    })
+    const result = await harness.runtime.process(
+      request({ permission: "bash", metadata: { command: "echo safe" } }),
+    )
+    expect(result.kind).toBe("escalate")
+    expect(result.reason).toContain("Declarative policy route: manual")
+    expect(client.prompts).toHaveLength(0)
   })
 })

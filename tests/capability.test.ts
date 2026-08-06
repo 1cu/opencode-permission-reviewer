@@ -175,6 +175,11 @@ describe("capability analyzer — dynamic constructs + parser completeness", () 
     const a = assess(cmd)
     expect(a.parserCompleteness).toBe("opaque")
   })
+
+  test("bare backtick command substitution marks opaque", () => {
+    const a = assess("echo `whoami`")
+    expect(a.parserCompleteness).toBe("opaque")
+  })
 })
 
 describe("capability analyzer — privilege wrappers peeled", () => {

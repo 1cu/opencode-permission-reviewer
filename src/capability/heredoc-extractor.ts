@@ -4,8 +4,8 @@ import type { HeredocRecord } from "../types.ts"
 /*
  * Heredoc extraction.
  *
- * Runs BEFORE the shell lexer so heredoc bodies never become tokens the
- * emergency brake walks. The motivating case is:
+ * Runs BEFORE the shell lexer used by the capability analyzer, so heredoc
+ * bodies never become tokens the analyzer walks. The motivating case is:
  *
  *   cat > /tmp/x <<'EOF'
  *   ...arbitrary content...
@@ -15,8 +15,13 @@ import type { HeredocRecord } from "../types.ts"
  * The extractor returns the command with each heredoc body replaced by a
  * redacted placeholder, plus structured records (delimiter, expansion flag,
  * bounded+redacted body, sha256 of the full body, output target when a `> path`
- * precedes the heredoc, dynamic flag). The lexer then sees only the placeholder
- * token; the brake's token stream is unaffected.
+ * precedes the heredoc, dynamic flag).
+ *
+ * NOTE: this protects the capability analyzer and evidence providers only.
+ * The emergency brake operates on the RAW command independently and does NOT
+ * use this extractor — heredoc bodies may still appear as tokens the brake
+ * sees. This is a known conservative limitation (the brake may false-positive
+ * on destructive text inside a heredoc body, but never false-negative).
  *
  * This is a bounded static parser, not a shell executor: it never expands the
  * body, never runs anything, and marks bodies with unresolvable expansions as
