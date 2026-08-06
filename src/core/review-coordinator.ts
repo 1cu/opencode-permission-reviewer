@@ -1,6 +1,7 @@
 import type {
   ActorContext,
   ApprovedAnnotation,
+  CapabilityAssessment,
   PermissionRequest,
   ReviewDecision,
   ReviewEnvelope,
@@ -51,6 +52,9 @@ export class ReviewCoordinator {
   // envelope holds it for the reviewer prompt, audit() runs after the model
   // call and reads the per-request bridge so both paths observe the same actor.
   private readonly actorByRequest = new Map<string, ActorContext>()
+  // Bridge for the capability assessment: same lifecycle as the actor/sshAudit
+  // bridges (set in collectEnvelope, read in audit(), cleared in process).
+  private readonly capabilityByRequest = new Map<string, CapabilityAssessment>()
   /**
    * Request IDs that a human (or any other reply source) resolved while the
    * automatic review was still in flight. The in-flight review must then give
@@ -123,6 +127,7 @@ export class ReviewCoordinator {
     } finally {
       this.sshAuditByRequest.delete(request.id)
       this.actorByRequest.delete(request.id)
+      this.capabilityByRequest.delete(request.id)
     }
   }
 
@@ -325,6 +330,9 @@ export class ReviewCoordinator {
     // error-path audits observe the same ssh summary.
     this.sshAuditByRequest.set(request.id, envelope.sshAudit)
     if (envelope.actor !== undefined) this.actorByRequest.set(request.id, envelope.actor)
+    if (envelope.capability !== undefined) {
+      this.capabilityByRequest.set(request.id, envelope.capability)
+    }
     return envelope
   }
 
@@ -337,6 +345,7 @@ export class ReviewCoordinator {
     const decision = result.decision
     const ssh = this.sshAuditByRequest.get(request.id)
     const actor = this.actorByRequest.get(request.id)
+    const capability = this.capabilityByRequest.get(request.id)
     const record: ReviewAuditRecord = {
       schemaVersion: 1,
       timestamp: new Date().toISOString(),
@@ -369,6 +378,39 @@ export class ReviewCoordinator {
             },
           }),
       ...(!ssh?.length ? {} : { ssh }),
+      ...(capability === undefined
+        ? {}
+        : {
+            capability: {
+              actionClass: capability.actionClass.value,
+              summary: capability.summary,
+              parserCompleteness: capability.parserCompleteness,
+              ...(capability.executesCode.value === true ? { executesCode: true } : {}),
+              ...(capability.createsAdHocCode.value === true ? { createsAdHocCode: true } : {}),
+              ...(capability.invokesPackageLifecycleScripts.value === true
+                ? { invokesPackageLifecycleScripts: true }
+                : {}),
+              writeEffects: {
+                ...(capability.writeEffects.temporaryWrite.value === true
+                  ? { temporaryWrite: true }
+                  : {}),
+                ...(capability.writeEffects.workspaceWrite.value === true
+                  ? { workspaceWrite: true }
+                  : {}),
+                ...(capability.writeEffects.externalWrite.value === true
+                  ? { externalWrite: true }
+                  : {}),
+                ...(capability.writeEffects.deletion.value === true ? { deletion: true } : {}),
+              },
+              ...(capability.network.observed.value === true ? { networkObserved: true } : {}),
+              ...(capability.process.privilegeEscalation.value === true
+                ? { privilegeEscalation: true }
+                : {}),
+              ...(capability.process.persistence.value === true ? { persistence: true } : {}),
+              ...(capability.remote.enabled.value === true ? { remoteEnabled: true } : {}),
+              ...(capability.git.possible.value === true ? { gitMutation: true } : {}),
+            },
+          }),
     }
     await this.ctx.writeAudit(record).catch((error) => {
       this.log("failed to write review audit", {

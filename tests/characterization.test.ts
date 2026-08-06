@@ -289,4 +289,54 @@ describe("actor-aware context threading", () => {
     })
     expect(audits[0]!.actor).not.toHaveProperty("name")
   })
+
+  test("capability assessment reaches the reviewer prompt for bash requests", async () => {
+    const client = new MockClient()
+    client.messageData = [
+      {
+        id: "msg_assistant",
+        role: "assistant",
+        agent: "build",
+        mode: "build",
+        parts: [{ type: "tool", tool: "bash", callID: "call_1" }],
+      },
+    ]
+    const harness = runtime(client)
+    await harness.runtime.process(
+      request({
+        permission: "bash",
+        tool: { messageID: "msg_assistant", callID: "call_1" },
+        metadata: { command: "pip install requests && curl http://example.com" },
+      }),
+    )
+    const prompt = JSON.stringify(client.prompts[0])
+    expect(prompt).toContain("CAPABILITY_ASSESSMENT")
+    expect(prompt).toContain("package lifecycle scripts")
+    expect(prompt).toContain("network")
+  })
+
+  test("capability summary reaches the audit record for bash requests", async () => {
+    const harness = runtime()
+    await harness.runtime.process(
+      request({
+        permission: "bash",
+        metadata: { command: "rm -rf /tmp/scratch" },
+      }),
+    )
+    const audits = (harness.ctx as unknown as { auditRecords: ReviewAuditRecord[] }).auditRecords
+    expect(audits).toHaveLength(1)
+    expect(audits[0]!.capability).toMatchObject({
+      actionClass: "destruction",
+      parserCompleteness: "complete-for-supported-form",
+    })
+    expect(audits[0]!.capability!.writeEffects).toMatchObject({ deletion: true })
+  })
+
+  test("capability is absent for non-bash permissions", async () => {
+    const harness = runtime()
+    await harness.runtime.process(request({ permission: "edit" }))
+    const audits = (harness.ctx as unknown as { auditRecords: ReviewAuditRecord[] }).auditRecords
+    expect(audits).toHaveLength(1)
+    expect(audits[0]!.capability).toBeUndefined()
+  })
 })

@@ -3,6 +3,8 @@ import { buildIntentHistory, buildTranscript, normalizeMessages } from "../conte
 import type { OpenCodeClientLike } from "../opencode/types.ts"
 import { responseData } from "../opencode/transport.ts"
 import { resolveActorContext } from "./actor-resolver.ts"
+import { parseCommand } from "../capability/command-parser.ts"
+import { analyzeCapability } from "../capability/bash-analyzer.ts"
 import type { EvidenceProvider } from "../evidence/provider.ts"
 import type { SshAuditSummary } from "../ssh-evidence.ts"
 import { SshEvidenceProvider } from "../evidence/ssh-provider.ts"
@@ -40,6 +42,27 @@ export async function assembleEvidence(
   // degrading to "unknown" — so this cannot block a review.
   const actor = await resolveActorContext(request, messages, ctx.client, ctx.directory, ctx.config)
 
+  // Parse the bash command and derive capability facts. Only computed for bash
+  // requests; non-bash permissions have no command surface to analyze. Wrapped in
+  // try/catch so a parser bug can never block a review (capability degrades to
+  // absent, never throws).
+  let parsed
+  let capability
+  if (request.permission === "bash") {
+    const command =
+      typeof request.metadata.command === "string"
+        ? request.metadata.command
+        : request.patterns.filter((p) => typeof p === "string").join("\n")
+    if (command.trim()) {
+      try {
+        parsed = parseCommand(command)
+        capability = analyzeCapability(parsed, ctx.directory, ctx.worktree)
+      } catch {
+        // Static analysis is best-effort; absence is non-fatal.
+      }
+    }
+  }
+
   const fragments = await Promise.all(
     providers.map((provider) =>
       provider.collect({
@@ -74,7 +97,14 @@ export async function assembleEvidence(
     actor: actor.actor,
     lineage: actor.lineage,
     intent: actor.intent,
-    evidenceCompleteness: actor.completeness,
+    evidenceCompleteness: {
+      ...actor.completeness,
+      // Capability is computed here (not in the resolver), so reflect whether
+      // the analyzer produced facts for this request.
+      capability: capability !== undefined,
+    },
+    ...(parsed === undefined ? {} : { parsedCommand: parsed }),
+    ...(capability === undefined ? {} : { capability }),
   }
 }
 

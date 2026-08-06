@@ -236,7 +236,44 @@ function renderCompleteness(c: EvidenceCompleteness, max: number): string {
       lineage: c.lineage,
       directUserIntent: c.directUserIntent,
       delegatedTask: c.delegatedTask,
+      capability: c.capability,
       ...(c.reasons.length === 0 ? {} : { reasons: c.reasons }),
+    },
+    max,
+  )
+}
+
+/** Render the capability assessment as a compact JSON block for the reviewer. */
+function renderCapability(cap: import("./types.ts").CapabilityAssessment, max: number): string {
+  return stableJson(
+    {
+      actionClass: cap.actionClass.value,
+      summary: cap.summary,
+      executesCode: cap.executesCode.value,
+      createsAdHocCode: cap.createsAdHocCode.value,
+      invokesPackageLifecycleScripts: cap.invokesPackageLifecycleScripts.value,
+      invokesExistingTestRunner: cap.invokesExistingTestRunner.value,
+      writeEffects: {
+        temporaryWrite: cap.writeEffects.temporaryWrite.value,
+        workspaceWrite: cap.writeEffects.workspaceWrite.value,
+        externalWrite: cap.writeEffects.externalWrite.value,
+        deletion: cap.writeEffects.deletion.value,
+      },
+      network: {
+        observed: cap.network.observed.value,
+        ...(cap.network.destinations.length === 0
+          ? {}
+          : { destinations: cap.network.destinations }),
+      },
+      process: {
+        childProcesses: cap.process.childProcesses.value,
+        persistence: cap.process.persistence.value,
+        privilegeEscalation: cap.process.privilegeEscalation.value,
+      },
+      remote: { enabled: cap.remote.enabled.value, mutationHint: cap.remote.mutationHint.value },
+      git: { mutation: cap.git.possible.value },
+      parserCompleteness: cap.parserCompleteness,
+      ...(cap.analysisWarnings.length === 0 ? {} : { warnings: cap.analysisWarnings }),
     },
     max,
   )
@@ -259,6 +296,9 @@ export function actorEvidenceSections(envelope: ReviewEnvelope, config: Reviewer
     `DIRECT_USER_INTENT\n${renderIntentBlocks(intent.directUserIntent, cap)}`,
     `DELEGATED_TASK\n${renderIntentBlocks(intent.delegatedTask, cap)}`,
   ]
+  if (envelope.capability !== undefined) {
+    sections.push(`CAPABILITY_ASSESSMENT\n${renderCapability(envelope.capability, cap)}`)
+  }
   if (completeness !== undefined) {
     sections.push(`EVIDENCE_COMPLETENESS\n${renderCompleteness(completeness, cap)}`)
   }
