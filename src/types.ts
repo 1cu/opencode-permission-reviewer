@@ -78,6 +78,11 @@ export interface ReviewEnvelope {
   lineage?: SessionLineage
   intent?: IntentContext
   evidenceCompleteness?: EvidenceCompleteness
+  /** Structured capability facts derived from the bash command. Observe-only:
+   *  feeds the reviewer prompt and audit, never enforcement. */
+  capability?: CapabilityAssessment
+  /** The parsed command reused across evidence providers. */
+  parsedCommand?: ParsedCommand
 }
 
 export interface ReviewAuditRecord {
@@ -118,6 +123,26 @@ export interface ReviewAuditRecord {
     stdinStatus?: string
     stdinReason?: string
   }>
+  /** Additive capability snapshot for audit (observe-only). */
+  capability?: {
+    actionClass: string
+    summary: string
+    parserCompleteness: string
+    executesCode?: boolean
+    createsAdHocCode?: boolean
+    invokesPackageLifecycleScripts?: boolean
+    writeEffects?: {
+      temporaryWrite?: boolean
+      workspaceWrite?: boolean
+      externalWrite?: boolean
+      deletion?: boolean
+    }
+    networkObserved?: boolean
+    privilegeEscalation?: boolean
+    persistence?: boolean
+    remoteEnabled?: boolean
+    gitMutation?: boolean
+  }
 }
 
 export interface ApprovedAnnotation {
@@ -245,4 +270,141 @@ export interface EvidenceCompleteness {
   referencedCode: boolean
   reasons: string[]
   overall: "sufficient" | "partial" | "insufficient"
+}
+
+// ---------------------------------------------------------------------------
+// Capability analysis. The analyzer produces these facts from the bash
+// command using the existing shell lexer; each fact is evidence for the reviewer
+// prompt, never a final safety decision. Fields default to "unknown" when no
+// detector covers them yet.
+// ---------------------------------------------------------------------------
+
+/** How completely the command could be statically analyzed. */
+export type ParserCompleteness =
+  /** Fully parsed: no variables, globs, substitutions, or heredoc bodies. */
+  | "complete-for-supported-form"
+  /** Some constructs could not be resolved (variables, partial heredoc). */
+  | "partial"
+  /** Heavy dynamic constructs (command substitution, eval, dynamic heredoc). */
+  | "opaque"
+
+/** A redirection extracted from a parsed command segment. */
+export interface Redirection {
+  /** `>` `>>` `<` `2>` `&>` etc. */
+  operator: string
+  /** Target path (file descriptor targets normalized to a path when possible). */
+  target: string
+  /** Whether the target was quoted in the source (affects literal-ness). */
+  quoted: boolean
+}
+
+/** A heredoc extracted before lexing so its body never reaches the lexer/brake. */
+export interface HeredocRecord {
+  /** The literal delimiter token as it appeared (`EOF`, `END`, …). */
+  delimiter: string
+  /** `<<` (expansion on) or `<<-` (tabs stripped) — normalized form. */
+  operator: string
+  /** Whether the delimiter was quoted, disabling expansion (`<<'EOF'`). */
+  expansionDisabled: boolean
+  /** Bounded + redacted body (truncated to a safe length). */
+  bodyBounded: string
+  /** SHA-256 of the full, unredacted body (stable identity without leaking it). */
+  bodySha256: string
+  /** Whether the body was truncated for storage. */
+  truncated: boolean
+  /** Output path associated with the heredoc when a `> path` precedes it. */
+  outputTarget?: string
+  /** Whether the body is dynamically constructed (unresolvable expansion). */
+  dynamic: boolean
+}
+
+/** A command parsed into a reusable structure. Wraps the existing lexer output
+ *  plus pre-extracted redirections and heredocs; the emergency brake keeps using
+ *  the raw lexer functions unchanged. */
+export interface ParsedCommand {
+  /** The command after heredoc bodies were replaced with placeholders. */
+  sanitizedCommand: string
+  /** Lexed segments of the sanitized command. */
+  segments: import("./shell-lexer.ts").ShellSegment[]
+  /** Effective commands (wrappers peeled) per segment. */
+  effective: import("./shell-lexer.ts").ShellToken[][]
+  /** Redirections grouped by segment index. */
+  redirections: Redirection[][]
+  /** Heredocs extracted before lexing. */
+  heredocs: HeredocRecord[]
+  /** Whether the original command contained any dynamic constructs. */
+  hasDynamicConstructs: boolean
+}
+
+/** High-level classification of what the action does. */
+export type CapabilityActionClass =
+  | "read-only"
+  | "workspace-write"
+  | "temporary-write"
+  | "external-write"
+  | "destruction"
+  | "code-execution"
+  | "package-management"
+  | "git-mutation"
+  | "network"
+  | "remote-operation"
+  | "service-management"
+  | "persistence"
+  | "privilege-escalation"
+  | "unknown"
+
+/** What the action can do, what it appears to do, and analysis confidence. */
+export interface CapabilityAssessment {
+  /** Best single-label summary of the dominant capability. */
+  actionClass: Provenanced<CapabilityActionClass>
+  /** Human-readable summary of the detected surface. */
+  summary: string
+  /** Executes an interpreter or runtime (sh, python, node, bun, …). */
+  executesCode: Provenanced<boolean | "unknown">
+  /** Executes code that lives in the repository (scripts, test files). */
+  executesRepositoryCode: Provenanced<boolean | "unknown">
+  /** Executes ad-hoc code generated by the agent (heredoc/inline). */
+  createsAdHocCode: Provenanced<boolean | "unknown">
+  /** Invokes a known test runner (pytest, jest, bun test, …). */
+  invokesExistingTestRunner: Provenanced<boolean | "unknown">
+  /** Runs a package manager that may execute lifecycle scripts. */
+  invokesPackageLifecycleScripts: Provenanced<boolean | "unknown">
+  /** Detected file-write surface. */
+  writeEffects: {
+    temporaryWrite: Provenanced<boolean | "unknown">
+    workspaceWrite: Provenanced<boolean | "unknown">
+    externalWrite: Provenanced<boolean | "unknown">
+    deletion: Provenanced<boolean | "unknown">
+  }
+  /** Detected network surface. */
+  network: {
+    observed: Provenanced<boolean | "unknown">
+    possible: Provenanced<boolean | "unknown">
+    /** Hosts/destinations observed literally in the command. */
+    destinations: string[]
+    observedAccess: Provenanced<boolean | "unknown">
+    possibleAccess: Provenanced<boolean | "unknown">
+  }
+  /** Detected process side-effects. */
+  process: {
+    childProcesses: Provenanced<boolean | "unknown">
+    persistence: Provenanced<boolean | "unknown">
+    privilegeEscalation: Provenanced<boolean | "unknown">
+  }
+  /** Detected remote-operation surface (ssh, etc.). */
+  remote: {
+    enabled: Provenanced<boolean | "unknown">
+    mutationHint: Provenanced<boolean | "unknown">
+  }
+  /** Detected git mutation surface. */
+  git: {
+    observed: Provenanced<boolean | "unknown">
+    possible: Provenanced<boolean | "unknown">
+    observedAccess: Provenanced<boolean | "unknown">
+    possibleAccess: Provenanced<boolean | "unknown">
+  }
+  /** How completely the command could be analyzed. */
+  parserCompleteness: ParserCompleteness
+  /** Free-form warnings about analysis limitations. */
+  analysisWarnings: string[]
 }
