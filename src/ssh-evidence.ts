@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { open, realpath, stat } from "node:fs/promises"
 import { basename, isAbsolute, resolve, sep } from "node:path"
 import type { PermissionRequest } from "./types.ts"
+import { sourceCommand } from "./evidence/source-command.ts"
 
 interface Token {
   value: string
@@ -58,7 +59,8 @@ const OPTION_WITH_VALUE = new Set([
   "-w",
 ])
 
-const SENSITIVE_PATH = /(?:^|\/)(?:\.env(?:\.|$)|\.ssh(?:\/|$)|\.aws(?:\/|$)|\.config\/gcloud(?:\/|$)|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?$|credentials(?:\.json)?$|authorized_keys$|known_hosts$|\.npmrc$|\.pypirc$|\.netrc$)/i
+const SENSITIVE_PATH =
+  /(?:^|\/)(?:\.env(?:\.|$)|\.ssh(?:\/|$)|\.aws(?:\/|$)|\.config\/gcloud(?:\/|$)|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?$|credentials(?:\.json)?$|authorized_keys$|known_hosts$|\.npmrc$|\.pypirc$|\.netrc$)/i
 const SENSITIVE_CONTENT =
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:sk|ghp|github_pat|nvapi)-[A-Za-z0-9_-]{16,}|\b(?:api[_-]?key|access[_-]?token|password)\s*[:=]\s*["'][^"'\n]{8,}["']/i
 
@@ -137,11 +139,14 @@ function commandSegments(tokens: Token[]): Array<{ tokens: Token[]; preceding?: 
     }
     preceding = token.value
   }
-  if (current.length > 0) result.push({ tokens: current, ...(preceding === undefined ? {} : { preceding }) })
+  if (current.length > 0)
+    result.push({ tokens: current, ...(preceding === undefined ? {} : { preceding }) })
   return result
 }
 
-export function shellCommandSegments(command: string): Array<{ tokens: string[]; preceding?: string }> {
+export function shellCommandSegments(
+  command: string,
+): Array<{ tokens: string[]; preceding?: string }> {
   return commandSegments(shellTokens(command)).map((segment) => ({
     tokens: segment.tokens.map((token) => token.value),
     ...(segment.preceding === undefined ? {} : { preceding: segment.preceding }),
@@ -172,9 +177,7 @@ export function shellCommandSegmentsWithDirectory(
   const result: ShellCommandSegmentWithDirectory[] = []
   let directory = resolve(initialDirectory)
   let directoryReason: string | undefined
-  let pendingCd:
-    | { before: string; target?: string; reason?: string }
-    | undefined
+  let pendingCd: { before: string; target?: string; reason?: string } | undefined
 
   for (const segment of segments) {
     if (pendingCd) {
@@ -225,15 +228,20 @@ function optionValue(token: string, option: string): string | undefined {
   return
 }
 
-function parseSsh(tokens: Token[], sshIndex: number): {
-  destination: string
-  host: string
-  user?: string
-  port?: string
-  identityFile?: string
-  strictHostKeyChecking?: string
-  remoteCommand: string
-} | undefined {
+function parseSsh(
+  tokens: Token[],
+  sshIndex: number,
+):
+  | {
+      destination: string
+      host: string
+      user?: string
+      port?: string
+      identityFile?: string
+      strictHostKeyChecking?: string
+      remoteCommand: string
+    }
+  | undefined {
   let destination: string | undefined
   let port: string | undefined
   let identityFile: string | undefined
@@ -330,10 +338,20 @@ async function includeFileOnce(
       realpath("/tmp/opencode").catch(() => "/tmp/opencode"),
     ])
     if (![directoryRoot, worktreeRoot, temporaryRoot].some((root) => within(actual, root))) {
-      return { source: "file", path: resolved, status: "blocked", reason: "outside approved enrichment roots" }
+      return {
+        source: "file",
+        path: resolved,
+        status: "blocked",
+        reason: "outside approved enrichment roots",
+      }
     }
     if (SENSITIVE_PATH.test(actual)) {
-      return { source: "file", path: resolved, status: "blocked", reason: "sensitive resolved path" }
+      return {
+        source: "file",
+        path: resolved,
+        status: "blocked",
+        reason: "sensitive resolved path",
+      }
     }
 
     const info = await stat(actual)
@@ -391,7 +409,10 @@ async function includeFileOnce(
 }
 
 function isMissingFile(result: FileEvidence): boolean {
-  return result.status === "unavailable" && /\bENOENT\b|no such file or directory/i.test(result.reason ?? "")
+  return (
+    result.status === "unavailable" &&
+    /\bENOENT\b|no such file or directory/i.test(result.reason ?? "")
+  )
 }
 
 export async function includeEvidenceFile(
@@ -431,7 +452,7 @@ function commandSignals(remoteCommand: string, hasStdin: boolean): Record<string
 }
 
 export function analyzeScriptContent(content: string): Record<string, unknown> {
-  const outboundUrls = [...content.matchAll(/https?:\/\/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+/g)]
+  const outboundUrls = [...content.matchAll(/https?:\/\/[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+/g)]
     .map((match) => match[0])
     .slice(0, 8)
   return {
@@ -442,7 +463,8 @@ export function analyzeScriptContent(content: string): Record<string, unknown> {
       /Path\s*\([^)]*(?:\.ssh\/id_|\.aws\/credentials|\.env\b|credential|private[_-]?key)[^)]*\)\s*\.\s*(?:read_text|read_bytes|open)/i.test(
         content,
       ),
-    environmentEnumerationHint: /\bos\.environ\b|\bprocess\.env\b|\bprintenv\b|(?:^|[^\w])env(?:[^\w]|$)/m.test(content),
+    environmentEnumerationHint:
+      /\bos\.environ\b|\bprocess\.env\b|\bprintenv\b|(?:^|[^\w])env(?:[^\w]|$)/m.test(content),
     networkUploadHint:
       /\brequests?\.(?:post|put|patch)\s*\(|\burlopen\s*\([^)]*(?:data\s*=|Request)|\bmethod\s*=\s*["'](?:POST|PUT|PATCH)["']|\bcurl\b[^\n]*(?:--data|-d\b|-T\b|--upload-file)/i.test(
         content,
@@ -466,12 +488,6 @@ export function analyzeScriptContent(content: string): Record<string, unknown> {
 function stdinSignals(stdin: FileEvidence | undefined): Record<string, unknown> | undefined {
   if (!stdin?.content) return
   return analyzeScriptContent(stdin.content)
-}
-
-function sourceCommand(request: PermissionRequest): string {
-  const command = request.metadata.command
-  if (typeof command === "string" && command.trim()) return command
-  return request.patterns.join(" ; ")
 }
 
 export async function enrichSshEvidence(
@@ -499,7 +515,9 @@ export async function enrichSshEvidence(
     const previous = segmentIndex > 0 ? segments[segmentIndex - 1] : undefined
     const stdinPath = segment.preceding === "|" && previous ? catSource(previous.tokens) : undefined
     const stdin =
-      stdinPath === undefined ? undefined : await includeEvidenceFile(stdinPath, directory, worktree, maxChars)
+      stdinPath === undefined
+        ? undefined
+        : await includeEvidenceFile(stdinPath, directory, worktree, maxChars)
     const remoteCommandSha256 = parsed.remoteCommand ? sha256(parsed.remoteCommand) : undefined
     const analyzedStdin = stdinSignals(stdin)
     const denial = deterministicDenial(stdin)
@@ -520,7 +538,12 @@ export async function enrichSshEvidence(
       ...(analyzedStdin === undefined ? {} : { stdinSignals: analyzedStdin }),
       ...(stdin === undefined
         ? segment.preceding === "|"
-          ? { stdin: { status: "unresolved", reason: "pipeline producer is not one regular cat file" } }
+          ? {
+              stdin: {
+                status: "unresolved",
+                reason: "pipeline producer is not one regular cat file",
+              },
+            }
           : {}
         : { stdin }),
     }

@@ -1,5 +1,6 @@
 import { basename } from "node:path"
 import type { PermissionRequest } from "./types.ts"
+import { sourceCommand } from "./evidence/source-command.ts"
 import {
   analyzeScriptContent,
   includeEvidenceFile,
@@ -36,12 +37,6 @@ const OPTIONS_WITH_VALUE = new Set([
   "-m",
 ])
 
-function sourceCommand(request: PermissionRequest): string {
-  const command = request.metadata.command
-  if (typeof command === "string" && command.trim()) return command
-  return request.patterns.join(" ; ")
-}
-
 const BUN_SUBCOMMANDS = new Set([
   "add",
   "build",
@@ -58,7 +53,11 @@ const BUN_SUBCOMMANDS = new Set([
   "x",
 ])
 
-function scriptPath(tokens: string[], interpreterIndex: number, interpreter: string): string | undefined {
+function scriptPath(
+  tokens: string[],
+  interpreterIndex: number,
+  interpreter: string,
+): string | undefined {
   for (let index = interpreterIndex + 1; index < tokens.length; index += 1) {
     const token = tokens[index]!
     if (token === "-" || INLINE_CODE_OPTIONS.has(token) || token === "-m") return

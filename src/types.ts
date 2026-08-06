@@ -65,6 +65,12 @@ export interface ReviewEnvelope {
 }
 
 export interface ReviewAuditRecord {
+  /**
+   * Audit schema version. Present on every record written since 0.6.0; readers
+   * default a missing field to `1` (additive — old records are still valid).
+   * Bump only on a breaking change to the record shape.
+   */
+  schemaVersion?: number
   timestamp: string
   durationMs: number
   requestID: string

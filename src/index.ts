@@ -1,7 +1,9 @@
 import type { Plugin, PluginModule } from "@opencode-ai/plugin"
 import { resolveConfig } from "./config.ts"
-import { ApprovalReviewerRuntime, extractPermissionRequest } from "./runtime.ts"
-import { encodeUiStatus } from "./ui-protocol.ts"
+import { ApprovalReviewerRuntime } from "./runtime.ts"
+import { extractPermissionRequest } from "./opencode/event-normalizer.ts"
+import { createV1Adapter } from "./opencode/v1-adapter.ts"
+import type { RuntimeContext } from "./opencode/types.ts"
 import { createAuditWriter } from "./audit.ts"
 
 export const server: Plugin = async (input, options) => {
@@ -12,41 +14,15 @@ export const server: Plugin = async (input, options) => {
       }
     : undefined
   const writeAudit = createAuditWriter(config, logger)
-  const transport = (input.client as unknown as {
-    _client?: {
-      post(options: unknown): Promise<{ data?: unknown; error?: unknown }>
-    }
-  })._client
-  if (!transport?.post) {
-    throw new Error("OpenCode's authenticated SDK transport is unavailable; refusing unsafe partial startup.")
-  }
-
-  const runtime = new ApprovalReviewerRuntime(
-    {
-      client: input.client as never,
-      permissionReply: (request) =>
-        transport.post({
-          url: "/permission/{requestID}/reply",
-          ...(request as Record<string, unknown>),
-          headers: { "Content-Type": "application/json" },
-        }),
-      publishUiStatus: (status) =>
-        transport.post({
-          url: "/tui/publish",
-          body: {
-            type: "tui.command.execute",
-            properties: { command: encodeUiStatus(status) },
-          },
-          query: { directory: input.directory },
-          headers: { "Content-Type": "application/json" },
-        }),
-      ...(writeAudit === undefined ? {} : { writeAudit }),
+  const ctx: RuntimeContext = {
+    ...createV1Adapter({
+      client: input.client,
       directory: input.directory,
       worktree: input.worktree,
-    },
-    config,
-    logger,
-  )
+    }),
+    ...(writeAudit === undefined ? {} : { writeAudit }),
+  }
+  const runtime = new ApprovalReviewerRuntime(ctx, config, logger)
 
   return {
     event: async ({ event }) => {
@@ -70,7 +46,8 @@ const module: PluginModule = {
 }
 
 export default module
-export { ApprovalReviewerRuntime, extractPermissionRequest } from "./runtime.ts"
+export { ApprovalReviewerRuntime } from "./runtime.ts"
+export { extractPermissionRequest } from "./opencode/event-normalizer.ts"
 export { resolveConfig } from "./config.ts"
 export { parseDecision, enforceDecision, DECISION_SCHEMA } from "./decision.ts"
 export { emergencyBrakeReason } from "./emergency-brake.ts"

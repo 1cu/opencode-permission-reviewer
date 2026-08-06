@@ -2,6 +2,7 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { basename, resolve } from "node:path"
 import type { PermissionRequest } from "./types.ts"
+import { sourceCommand } from "./evidence/source-command.ts"
 import { shellCommandSegmentsWithDirectory } from "./ssh-evidence.ts"
 
 const execFileAsync = promisify(execFile)
@@ -19,12 +20,6 @@ interface PlannedGitActions {
   commands: string[]
   executionDirectory?: string
   directoryReason?: string
-}
-
-function sourceCommand(request: PermissionRequest): string {
-  const command = request.metadata.command
-  if (typeof command === "string" && command.trim()) return command
-  return request.patterns.join(" ; ")
 }
 
 function gitSubcommand(tokens: string[], gitIndex: number): { command?: string; index: number } {
@@ -101,14 +96,12 @@ function plannedActions(command: string, directory: string): PlannedGitActions {
     const { command: subcommand, index } = gitSubcommand(segment.tokens, gitIndex)
     if (!subcommand) continue
     if (!["add", "commit", "checkout", "restore", "rm"].includes(subcommand)) continue
-    const execution = gitExecutionDirectory(
-      segment.tokens,
-      gitIndex,
-      index,
-      segment.directory,
-    )
+    const execution = gitExecutionDirectory(segment.tokens, gitIndex, index, segment.directory)
     if (execution.directory) executionDirectories.add(execution.directory)
-    else directoryReasons.add(execution.reason ?? segment.directoryReason ?? "Git directory is unresolved")
+    else
+      directoryReasons.add(
+        execution.reason ?? segment.directoryReason ?? "Git directory is unresolved",
+      )
     result.relevant = true
     result.commands.push(subcommand)
     if (subcommand === "commit") result.commit = true
@@ -136,7 +129,10 @@ function boundedList(values: string[], max = 200): { values: string[]; omitted: 
   }
 }
 
-async function runGit(directory: string, args: string[]): Promise<{ ok: true; stdout: string } | { ok: false; reason: string }> {
+async function runGit(
+  directory: string,
+  args: string[],
+): Promise<{ ok: true; stdout: string } | { ok: false; reason: string }> {
   try {
     const result = await execFileAsync(
       "git",
@@ -151,7 +147,12 @@ async function runGit(directory: string, args: string[]): Promise<{ ok: true; st
     )
     return { ok: true, stdout: result.stdout }
   } catch (error) {
-    const record = error as { code?: unknown; signal?: unknown; stderr?: unknown; message?: unknown }
+    const record = error as {
+      code?: unknown
+      signal?: unknown
+      stderr?: unknown
+      message?: unknown
+    }
     const reason =
       typeof record.stderr === "string" && record.stderr.trim()
         ? record.stderr.trim()
@@ -205,7 +206,11 @@ export async function enrichGitEvidence(
   if (!planned.executionDirectory) {
     return {
       text: `GIT_STATE_ANALYSIS\n${JSON.stringify(
-        { status: "unavailable", reason: planned.directoryReason ?? "Git directory is unresolved", planned },
+        {
+          status: "unavailable",
+          reason: planned.directoryReason ?? "Git directory is unresolved",
+          planned,
+        },
         null,
         2,
       ).slice(0, maxChars)}`,
@@ -229,9 +234,9 @@ export async function enrichGitEvidence(
   }
 
   const parsed = parseStatus(status.stdout)
-  const affectedTargets = [...new Set([...planned.discardTargets, ...planned.removeTargets])].filter(
-    (value) => !/[$`*?{}<>]/.test(value),
-  )
+  const affectedTargets = [
+    ...new Set([...planned.discardTargets, ...planned.removeTargets]),
+  ].filter((value) => !/[$`*?{}<>]/.test(value))
   const targetDiff =
     affectedTargets.length === 0
       ? undefined
