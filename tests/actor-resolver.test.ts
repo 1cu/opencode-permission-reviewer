@@ -362,3 +362,40 @@ describe("actor resolver — resilience", () => {
     expect(res.actor.profile.confidence).toBe("confirmed")
   })
 })
+
+// Locks the multi-hop happy path validated live against the real SDK: a 3-level
+// chain resolves depth 2, the root is the top ancestor, the configured profile
+// mapping is applied, and completeness reflects a fully-walked lineage.
+describe("actor resolver — multi-hop lineage happy path", () => {
+  test("three-level chain resolves root, depth, profile and completeness", async () => {
+    const client = buildClient({
+      sessions: {
+        leaf: { meta: { id: "leaf", parentID: "mid" } },
+        mid: { meta: { id: "mid", parentID: "root", agent: "mid-agent" } },
+        root: { meta: { id: "root" } },
+      },
+    })
+    const messages = [
+      {
+        info: { id: "msg_leaf", role: "assistant", agent: "generalist", mode: "default" },
+        parts: [{ type: "tool", tool: "bash", callID: "call_leaf" }],
+      },
+    ] as MessageWithParts[]
+    const res = await resolveActorContext(
+      request("leaf", { messageID: "msg_leaf", callID: "call_leaf" }),
+      messages,
+      client,
+      "/repo",
+      { ...cfg, actorProfiles: { generalist: "workspace" } },
+    )
+    expect(res.actor.agentName.value).toBe("generalist")
+    expect(res.actor.profile.value).toBe("workspace")
+    expect(res.actor.profile.confidence).toBe("confirmed")
+    expect(res.lineage.depth).toBe(2)
+    expect(res.lineage.rootSessionID).toBe("root")
+    expect(res.lineage.nodes.map((n) => n.sessionID)).toEqual(["leaf", "mid", "root"])
+    expect(res.actor.delegationDepth.value).toBe(2)
+    expect(res.completeness.lineage).toBe(true)
+    expect(res.actor.identityCompleteness).toBe("complete")
+  })
+})
