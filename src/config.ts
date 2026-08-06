@@ -1,4 +1,25 @@
-import type { ActorProfile, ReviewerConfig } from "./types.ts"
+import type {
+  ActorProfile,
+  RiskPolicy,
+  RepositoryTrust,
+  ReviewerConfig,
+  UserAuthorization,
+} from "./types.ts"
+
+/** Default risk×authorization matrix. Reproduces exactly the previous
+ *  hard-coded gate: critical never auto-allows; high needs at least medium auth;
+ *  medium needs at least low auth; low allows any auth including unknown. */
+export const DEFAULT_RISK_POLICY: RiskPolicy = {
+  allow: {
+    low: ["high", "medium", "low", "unknown"],
+    medium: ["high", "medium", "low"],
+    high: ["high", "medium"],
+    critical: [],
+  },
+  minimumConfidence: 0.7,
+  onInvalidDecision: "manual",
+  onReviewerFailure: "manual",
+}
 
 export const DEFAULT_CONFIG: ReviewerConfig = {
   model: "openai/gpt-5.6-luna",
@@ -19,6 +40,8 @@ export const DEFAULT_CONFIG: ReviewerConfig = {
   maxSessionDepth: 8,
   maxParentSessions: 8,
   actorProfiles: {},
+  riskPolicy: DEFAULT_RISK_POLICY,
+  repositoryTrust: "unknown",
 }
 
 function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -50,6 +73,43 @@ function resolveActorProfiles(value: unknown): Record<string, ActorProfile> {
     }
   }
   return out
+}
+
+const VALID_AUTH = new Set(["high", "medium", "low", "unknown"])
+
+/** Parse a risk×authorization matrix. Invalid or partial entries fall back to
+ *  the conservative default. Only the `allow` sub-object is user-configurable;
+ *  `minimumConfidence` mirrors `confidenceThreshold` to keep them in sync. */
+function resolveRiskPolicy(value: unknown): RiskPolicy {
+  if (typeof value !== "object" || value === null) return DEFAULT_RISK_POLICY
+  const src = value as Record<string, unknown>
+  const allowSrc = typeof src.allow === "object" && src.allow !== null ? src.allow : {}
+  const merged: RiskPolicy = {
+    allow: { ...DEFAULT_RISK_POLICY.allow },
+    minimumConfidence: DEFAULT_RISK_POLICY.minimumConfidence,
+    onInvalidDecision:
+      src.onInvalidDecision === "deny" ? "deny" : DEFAULT_RISK_POLICY.onInvalidDecision,
+    onReviewerFailure:
+      src.onReviewerFailure === "deny" ? "deny" : DEFAULT_RISK_POLICY.onReviewerFailure,
+  }
+  for (const risk of ["low", "medium", "high", "critical"] as const) {
+    const cell = (allowSrc as Record<string, unknown>)[risk]
+    if (!Array.isArray(cell)) continue
+    const auths = cell.filter(
+      (a) => typeof a === "string" && VALID_AUTH.has(a),
+    ) as UserAuthorization[]
+    merged.allow[risk] = auths
+  }
+  if (typeof src.minimumConfidence === "number" && Number.isFinite(src.minimumConfidence)) {
+    merged.minimumConfidence = Math.min(1, Math.max(0.5, src.minimumConfidence))
+  }
+  return merged
+}
+
+function resolveRepositoryTrust(value: unknown): RepositoryTrust {
+  if (value === "trusted") return "trusted"
+  if (value === "untrusted") return "untrusted"
+  return "unknown"
 }
 
 export function resolveConfig(options: Record<string, unknown> | undefined): ReviewerConfig {
@@ -131,6 +191,8 @@ export function resolveConfig(options: Record<string, unknown> | undefined): Rev
       32,
     ),
     actorProfiles: resolveActorProfiles(source.actorProfiles),
+    riskPolicy: resolveRiskPolicy(source.riskPolicy),
+    repositoryTrust: resolveRepositoryTrust(source.repositoryTrust),
   }
 }
 

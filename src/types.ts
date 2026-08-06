@@ -34,6 +34,28 @@ export interface MessageWithParts {
   parts: Array<Record<string, unknown>>
 }
 
+/** Deterministic risk×authorization matrix that gates reviewer `allow`
+ *  outcomes. For each risk level, lists the authorization levels that permit an
+ *  auto-allow. An empty array means no authorization permits auto-allow at that
+ *  risk (the action is escalated). Only ever RESTRICTS; deny/escalate are always
+ *  preserved. */
+export interface RiskPolicy {
+  allow: {
+    low: UserAuthorization[]
+    medium: UserAuthorization[]
+    high: UserAuthorization[]
+    critical: UserAuthorization[]
+  }
+  minimumConfidence: number
+  onInvalidDecision: "manual" | "deny"
+  onReviewerFailure: "manual" | "deny"
+}
+
+/** Conservative repository trust model. A repository cannot mark itself trusted
+ *  through project configuration alone — trust comes from global config or an
+ *  interactive decision stored outside the repo. */
+export type RepositoryTrust = "trusted" | "untrusted" | "unknown"
+
 export interface ReviewerConfig {
   model: string
   variant: string
@@ -60,6 +82,11 @@ export interface ReviewerConfig {
   maxParentSessions: number
   /** Trusted name→profile mappings (empty by default; no mappings shipped). */
   actorProfiles: Record<string, ActorProfile>
+  /** Deterministic risk×authorization gate, configurable but defaults reproduce
+   *  the previous hard-coded matrix exactly. */
+  riskPolicy: RiskPolicy
+  /** Repository trust level derived from global config (never from project). */
+  repositoryTrust: RepositoryTrust
 }
 
 export interface ReviewEnvelope {

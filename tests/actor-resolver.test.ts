@@ -89,24 +89,10 @@ function userMessage(id: string, text: string): MessageWithParts {
   return { info: { id, role: "user" }, parts: [{ type: "text", text }] }
 }
 
+import { DEFAULT_CONFIG } from "../src/config.ts"
+
 const cfg = {
-  model: "openai/gpt-5.6-luna",
-  variant: "max",
-  timeoutMs: 120_000,
-  maxContextChars: 32_000,
-  maxPartChars: 8_000,
-  maxEnrichmentChars: 24_000,
-  maxIntentChars: 8_000,
-  transcriptMessages: 12,
-  intentMessages: 8,
-  historyMessages: 200,
-  confidenceThreshold: 0.7,
-  retainReviewSessions: false,
-  audit: true,
-  debug: false,
-  enforcementMode: "observe" as const,
-  maxSessionDepth: 8,
-  maxParentSessions: 8,
+  ...DEFAULT_CONFIG,
   actorProfiles: {},
 }
 
