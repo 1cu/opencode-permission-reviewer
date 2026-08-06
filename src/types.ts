@@ -1,6 +1,8 @@
 export type RiskLevel = "low" | "medium" | "high" | "critical"
 export type UserAuthorization = "high" | "medium" | "low" | "unknown"
 export type ReviewOutcome = "allow" | "deny" | "escalate"
+export type ScopeAlignment = "aligned" | "partial" | "misaligned" | "unknown"
+export type EvidenceSufficiency = "sufficient" | "partial" | "insufficient" | "unknown"
 
 export interface ReviewDecision {
   outcome: ReviewOutcome
@@ -8,6 +10,12 @@ export interface ReviewDecision {
   user_authorization: UserAuthorization
   rationale: string
   confidence: number
+  /** How well the request aligns with the recovered user/delegated intent.
+   *  Optional: absent on v1 decisions (treated as "unknown" by the gates). */
+  scope_alignment?: ScopeAlignment
+  /** Whether the evidence was sufficient to decide confidently.
+   *  Optional: absent on v1 decisions (treated as "unknown" by the gates). */
+  evidence_completeness?: EvidenceSufficiency
 }
 
 export interface PermissionToolSource {
@@ -163,6 +171,10 @@ export interface ReviewAuditRecord {
    * Bump only on a breaking change to the record shape.
    */
   schemaVersion?: number
+  /** Version of the structured-decision schema the reviewer was asked to emit. */
+  decisionSchemaVersion?: number
+  /** Version of the reviewer system prompt used for this decision. */
+  promptVersion?: string
   timestamp: string
   durationMs: number
   requestID: string

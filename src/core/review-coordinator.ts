@@ -11,8 +11,18 @@ import type {
   ReviewerConfig,
 } from "../types.ts"
 import { buildEvidence } from "../context.ts"
-import { DECISION_SCHEMA, enforceDecision, parseDecision } from "../decision.ts"
-import { DEFAULT_TENANT_POLICY, REVIEWER_SYSTEM_PROMPT, buildReviewerPrompt } from "../policy.ts"
+import {
+  DECISION_SCHEMA,
+  DECISION_SCHEMA_VERSION,
+  enforceDecision,
+  parseDecision,
+} from "../decision.ts"
+import {
+  DEFAULT_TENANT_POLICY,
+  REVIEWER_PROMPT_VERSION,
+  REVIEWER_SYSTEM_PROMPT,
+  buildReviewerPrompt,
+} from "../policy.ts"
 import { emergencyBrakeReason } from "../emergency-brake.ts"
 import { evaluatePolicy } from "../policy/policy-engine.ts"
 import { splitModel } from "../config.ts"
@@ -384,6 +394,8 @@ export class ReviewCoordinator {
     const policyTrace = this.policyTraceByRequest.get(request.id)
     const record: ReviewAuditRecord = {
       schemaVersion: 1,
+      decisionSchemaVersion: DECISION_SCHEMA_VERSION,
+      promptVersion: REVIEWER_PROMPT_VERSION,
       timestamp: new Date().toISOString(),
       durationMs: Math.max(0, Date.now() - startedAt),
       requestID: request.id,

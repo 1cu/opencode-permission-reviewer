@@ -22,6 +22,8 @@ export function decision(
         ? "The action is narrow, reversible, and explicitly requested."
         : "The action has unsafe unrequested effects.",
     confidence: 0.95,
+    scope_alignment: "aligned",
+    evidence_completeness: "sufficient",
     ...overrides,
   }
 }

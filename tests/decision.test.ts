@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { DEFAULT_CONFIG, resolveConfig, splitModel } from "../src/config.ts"
-import { enforceDecision, parseDecision } from "../src/decision.ts"
+import { DECISION_SCHEMA, enforceDecision, parseDecision } from "../src/decision.ts"
 import { decision } from "./helpers.ts"
 
 describe("decision parsing and invariants", () => {
@@ -195,5 +195,104 @@ describe("configuration", () => {
       modelID: "gpt-5.6-luna",
     })
     expect(() => splitModel("invalid")).toThrow()
+  })
+})
+
+describe("schema v2 fields", () => {
+  test("parseDecision accepts scope_alignment and evidence_completeness", () => {
+    const parsed = parseDecision({
+      ...decision("allow"),
+      scope_alignment: "misaligned",
+      evidence_completeness: "insufficient",
+    })
+    expect(parsed?.scope_alignment).toBe("misaligned")
+    expect(parsed?.evidence_completeness).toBe("insufficient")
+  })
+
+  test("parseDecision defaults v2 fields to unknown when absent (v1 backward-compat)", () => {
+    const parsed = parseDecision({
+      outcome: "allow",
+      risk_level: "low",
+      user_authorization: "high",
+      rationale: "safe",
+      confidence: 0.9,
+    })
+    expect(parsed?.scope_alignment).toBe("unknown")
+    expect(parsed?.evidence_completeness).toBe("unknown")
+  })
+
+  test("parseDecision rejects invalid scope_alignment values", () => {
+    expect(parseDecision({ ...decision("allow"), scope_alignment: "perfect" })).toBeUndefined()
+  })
+
+  test("parseDecision rejects invalid evidence_completeness values", () => {
+    expect(parseDecision({ ...decision("allow"), evidence_completeness: "great" })).toBeUndefined()
+  })
+
+  test("DECISION_SCHEMA includes the v2 properties", () => {
+    expect(DECISION_SCHEMA.properties).toHaveProperty("scope_alignment")
+    expect(DECISION_SCHEMA.properties).toHaveProperty("evidence_completeness")
+  })
+
+  test("misaligned scope escalates an allow", () => {
+    const result = enforceDecision(
+      decision("allow", { scope_alignment: "misaligned" }),
+      DEFAULT_CONFIG,
+    )
+    expect(result.kind).toBe("escalate")
+  })
+
+  test("aligned scope does not escalate by itself", () => {
+    const result = enforceDecision(
+      decision("allow", { scope_alignment: "aligned" }),
+      DEFAULT_CONFIG,
+    )
+    expect(result.kind).toBe("allow")
+  })
+
+  test("insufficient evidence escalates a medium-risk allow", () => {
+    const result = enforceDecision(
+      decision("allow", {
+        risk_level: "medium",
+        user_authorization: "high",
+        evidence_completeness: "insufficient",
+      }),
+      DEFAULT_CONFIG,
+    )
+    expect(result.kind).toBe("escalate")
+  })
+
+  test("insufficient evidence does not escalate a low-risk allow", () => {
+    const result = enforceDecision(
+      decision("allow", {
+        risk_level: "low",
+        user_authorization: "high",
+        evidence_completeness: "insufficient",
+      }),
+      DEFAULT_CONFIG,
+    )
+    expect(result.kind).toBe("allow")
+  })
+
+  test("v1 decision (fields absent) is never escalated by the v2 gates", () => {
+    const v1 = {
+      outcome: "allow" as const,
+      risk_level: "medium" as const,
+      user_authorization: "high" as const,
+      rationale: "safe enough",
+      confidence: 0.9,
+    }
+    const result = enforceDecision(v1, DEFAULT_CONFIG)
+    expect(result.kind).toBe("allow")
+  })
+
+  test("deny and escalate outcomes are never affected by v2 gates", () => {
+    expect(
+      enforceDecision(decision("deny", { scope_alignment: "aligned" }), DEFAULT_CONFIG).kind,
+    ).toBe("deny")
+    expect(
+      enforceDecision(decision("escalate", { evidence_completeness: "sufficient" }), DEFAULT_CONFIG)
+        .kind,
+    ).toBe("escalate")
   })
 })
