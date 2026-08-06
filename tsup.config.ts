@@ -12,6 +12,7 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     tui: "src/tui.tsx",
+    explain: "src/cli/explain.ts",
   },
   format: ["esm"],
   platform: "node",

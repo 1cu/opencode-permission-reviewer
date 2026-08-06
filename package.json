@@ -1,6 +1,6 @@
 {
   "name": "opencode-permission-reviewer",
-  "version": "0.6.0",
+  "version": "0.8.0",
   "description": "Policy-aware permission reviewer for OpenCode V1",
   "type": "module",
   "private": true,
@@ -9,6 +9,9 @@
     ".": "./src/index.ts",
     "./server": "./src/index.ts",
     "./tui": "./src/tui.tsx"
+  },
+  "bin": {
+    "opencode-permission-reviewer": "./dist/explain.js"
   },
   "license": "Apache-2.0",
   "author": "Warc0s",
