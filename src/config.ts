@@ -1,4 +1,4 @@
-import type { ReviewerConfig } from "./types.ts"
+import type { ActorProfile, ReviewerConfig } from "./types.ts"
 
 export const DEFAULT_CONFIG: ReviewerConfig = {
   model: "openai/gpt-5.6-luna",
@@ -15,6 +15,10 @@ export const DEFAULT_CONFIG: ReviewerConfig = {
   retainReviewSessions: false,
   audit: true,
   debug: false,
+  enforcementMode: "observe",
+  maxSessionDepth: 8,
+  maxParentSessions: 8,
+  actorProfiles: {},
 }
 
 function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -25,6 +29,27 @@ function boundedInteger(value: unknown, fallback: number, min: number, max: numb
 function boundedNumber(value: unknown, fallback: number, min: number, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback
   return Math.min(max, Math.max(min, value))
+}
+
+const ACTOR_PROFILES: ReadonlySet<ActorProfile> = new Set([
+  "read-only",
+  "validation",
+  "workspace",
+  "operator",
+  "reviewer",
+  "unknown",
+])
+
+/** Parse a trusted name→profile mapping. Invalid entries are dropped. */
+function resolveActorProfiles(value: unknown): Record<string, ActorProfile> {
+  if (typeof value !== "object" || value === null) return {}
+  const out: Record<string, ActorProfile> = {}
+  for (const [name, profile] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof profile === "string" && ACTOR_PROFILES.has(profile as ActorProfile)) {
+      out[name] = profile as ActorProfile
+    }
+  }
+  return out
 }
 
 export function resolveConfig(options: Record<string, unknown> | undefined): ReviewerConfig {
@@ -96,6 +121,16 @@ export function resolveConfig(options: Record<string, unknown> | undefined): Rev
     ...(auditPath === undefined ? {} : { auditPath }),
     ...(policy === undefined ? {} : { policy }),
     debug: typeof source.debug === "boolean" ? source.debug : DEFAULT_CONFIG.debug,
+    enforcementMode:
+      source.enforcementMode === "enforce" ? "enforce" : DEFAULT_CONFIG.enforcementMode,
+    maxSessionDepth: boundedInteger(source.maxSessionDepth, DEFAULT_CONFIG.maxSessionDepth, 1, 32),
+    maxParentSessions: boundedInteger(
+      source.maxParentSessions,
+      DEFAULT_CONFIG.maxParentSessions,
+      0,
+      32,
+    ),
+    actorProfiles: resolveActorProfiles(source.actorProfiles),
   }
 }
 

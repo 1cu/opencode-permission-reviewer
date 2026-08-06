@@ -12,6 +12,9 @@ export interface OpenCodeClientLike {
     messages(options: unknown): Promise<ClientResponse<unknown>>
     prompt(options: unknown): Promise<ClientResponse<Record<string, unknown>>>
     delete?(options: unknown): Promise<ClientResponse<unknown>>
+    /** Fetch session metadata (parentID, title, …). Optional: the actor resolver
+     *  degrades to "lineage unavailable" when the host client does not expose it. */
+    get?(options: unknown): Promise<ClientResponse<unknown>>
   }
   tool: {
     ids(options?: unknown): Promise<ClientResponse<string[]>>
