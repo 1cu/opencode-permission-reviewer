@@ -21,6 +21,7 @@ export default defineConfig({
   splitting: false,
   clean: true,
   sourcemap: false,
+  dts: true,
   external: [
     "@opencode-ai/plugin",
     "@opencode-ai/plugin/tui",
