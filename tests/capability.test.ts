@@ -170,6 +170,11 @@ describe("capability analyzer — dynamic constructs + parser completeness", () 
     expect(a.parserCompleteness).toBe("complete-for-supported-form")
   })
 
+  test("single-quoted variable mid-string is NOT dynamic", () => {
+    const a = assess("echo 'literal $VAR here'")
+    expect(a.parserCompleteness).toBe("complete-for-supported-form")
+  })
+
   test("dynamic heredoc body marks opaque", () => {
     const cmd = "cat > /tmp/x <<EOF\n$(whoami)\nEOF"
     const a = assess(cmd)

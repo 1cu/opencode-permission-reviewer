@@ -129,15 +129,58 @@ function resolvePolicyRules(value: unknown): PolicyRule[] {
     if (typeof r.effect !== "string" || !VALID_EFFECTS.has(r.effect)) continue
     if (typeof r.reason !== "string" || r.reason.length === 0) continue
     if (typeof r.when !== "object" || r.when === null) continue
+    const when = validateCondition(r.when as Record<string, unknown>)
+    if (when === null) continue
     out.push({
       id: r.id,
       source: r.source as PolicyRule["source"],
-      when: r.when as PolicyRule["when"],
+      when,
       effect: r.effect as PolicyRule["effect"],
       reason: r.reason,
     })
   }
   return out
+}
+/** Validate a policy condition's sub-fields; return null if malformed (so a bad
+ *  rule is dropped rather than crashing the engine at match time). */
+function validateCondition(value: Record<string, unknown>): PolicyRule["when"] | null {
+  const out: Record<string, unknown> = {}
+  if (value.actionClass !== undefined) {
+    if (!isStringArray(value.actionClass)) return null
+    out.actionClass = value.actionClass
+  }
+  if (value.actorProfile !== undefined) {
+    if (!isStringArray(value.actorProfile)) return null
+    out.actorProfile = value.actorProfile
+  }
+  if (value.repositoryTrust !== undefined) {
+    if (!isStringArray(value.repositoryTrust)) return null
+    out.repositoryTrust = value.repositoryTrust
+  }
+  for (const flag of [
+    "writesWorkspace",
+    "writesExternal",
+    "writesTemporary",
+    "deletion",
+    "executesCode",
+    "createsAdHocCode",
+    "packageManagement",
+    "gitMutation",
+    "networkObserved",
+    "privilegeEscalation",
+    "remoteEnabled",
+    "persistence",
+  ]) {
+    if (value[flag] !== undefined) {
+      if (typeof value[flag] !== "boolean") return null
+      out[flag] = value[flag]
+    }
+  }
+  return out as PolicyRule["when"]
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((v) => typeof v === "string")
 }
 
 export function resolveConfig(options: Record<string, unknown> | undefined): ReviewerConfig {

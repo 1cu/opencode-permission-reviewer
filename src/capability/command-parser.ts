@@ -92,9 +92,14 @@ function isQuoted(value: string, raw: string): boolean {
 
 /** Whether the raw command contains dynamic constructs the lexer leaves intact.
  *  Command substitution (`$(...)` or bare backticks) makes analysis OPAQUE;
- *  variables and globs make it PARTIAL. */
+ *  variables and globs make it PARTIAL. Single-quoted regions are literal and
+ *  must NOT trip the detector — so we strip them before checking. */
 function looksDynamic(command: string): boolean {
-  return /\$\(|`|\$\{|[^'"]\$[A-Za-z_]|[?*]\s|<\(|>\(|\[\[/.test(command)
+  // Remove single-quoted regions (everything between unescaped `'` pairs) so
+  // `echo 'literal $VAR'` does not false-positive. Double quotes still allow
+  // expansion in bash, so they are left intact.
+  const literal = command.replace(/'[^']*'/g, "")
+  return /\$\(|`|\$\{|\$[A-Za-z_]|[?*]\s|<\(|>\(|\[\[/.test(literal)
 }
 
 /** Whether a token list itself carries dynamic markers. */

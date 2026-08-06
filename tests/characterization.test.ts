@@ -399,4 +399,49 @@ describe("actor-aware context threading", () => {
     expect(result.reason).toContain("Declarative policy route: manual")
     expect(client.prompts).toHaveLength(0)
   })
+
+  test("enforce mode with a review route proceeds to the LLM normally", async () => {
+    const client = new MockClient()
+    client.nextStructured = decision("allow")
+    const harness = runtime(client, {
+      enforcementMode: "enforce",
+      policyRules: [
+        {
+          id: "deny-destruction",
+          source: "global",
+          when: { actionClass: ["destruction"] },
+          effect: "deny",
+          reason: "deny destruction",
+        },
+      ],
+    })
+    // "echo safe" is read-only, so the deny rule does not match → proceeds to LLM.
+    const result = await harness.runtime.process(
+      request({ permission: "bash", metadata: { command: "echo safe" } }),
+    )
+    expect(client.prompts).toHaveLength(1)
+    expect(result.kind).toBe("allow")
+  })
+
+  test("malformed policy rule (non-array when.actionClass) is dropped, not crashed", async () => {
+    const client = new MockClient()
+    client.nextStructured = decision("allow")
+    const harness = runtime(client, {
+      policyRules: [
+        {
+          id: "bad-rule",
+          source: "global",
+          when: { actionClass: 42 } as unknown as Record<string, unknown>,
+          effect: "deny",
+          reason: "should be dropped",
+        },
+      ],
+    })
+    const result = await harness.runtime.process(
+      request({ permission: "bash", metadata: { command: "echo safe" } }),
+    )
+    // The malformed rule was dropped; review proceeds normally.
+    expect(client.prompts).toHaveLength(1)
+    expect(result.kind).toBe("allow")
+  })
 })

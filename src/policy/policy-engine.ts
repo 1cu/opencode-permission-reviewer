@@ -99,11 +99,11 @@ function matches(
   config: ReviewerConfig,
 ): boolean {
   if (cond.actionClass !== undefined) {
-    if (cap === undefined) return false
+    if (!Array.isArray(cond.actionClass) || cap === undefined) return false
     if (!cond.actionClass.includes(cap.actionClass.value)) return false
   }
   if (cond.actorProfile !== undefined) {
-    if (actor === undefined) return false
+    if (!Array.isArray(cond.actorProfile) || actor === undefined) return false
     if (!cond.actorProfile.includes(actor.profile.value)) return false
   }
   if (cond.writesWorkspace === true && cap?.writeEffects.workspaceWrite.value !== true) return false
@@ -123,6 +123,7 @@ function matches(
   if (cond.remoteEnabled === true && cap?.remote.enabled.value !== true) return false
   if (cond.persistence === true && cap?.process.persistence.value !== true) return false
   if (cond.repositoryTrust !== undefined) {
+    if (!Array.isArray(cond.repositoryTrust)) return false
     if (!cond.repositoryTrust.includes(config.repositoryTrust)) return false
   }
   return true
