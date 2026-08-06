@@ -1,5 +1,5 @@
 import type { Plugin, PluginModule } from "@opencode-ai/plugin"
-import { resolveConfig } from "./config.ts"
+import { loadResolvedConfig } from "./config/loader.ts"
 import { ApprovalReviewerRuntime } from "./runtime.ts"
 import { extractPermissionRequest } from "./opencode/event-normalizer.ts"
 import { createV1Adapter } from "./opencode/v1-adapter.ts"
@@ -7,7 +7,7 @@ import type { RuntimeContext } from "./opencode/types.ts"
 import { createAuditWriter } from "./audit.ts"
 
 export const server: Plugin = async (input, options) => {
-  const config = resolveConfig(options)
+  const config = loadResolvedConfig(options, input.directory)
   const logger = config.debug
     ? (message: string, details?: unknown) => {
         console.error(`[opencode-permission-reviewer] ${message}`, details ?? "")
@@ -49,6 +49,7 @@ export default module
 export { ApprovalReviewerRuntime } from "./runtime.ts"
 export { extractPermissionRequest } from "./opencode/event-normalizer.ts"
 export { resolveConfig } from "./config.ts"
+export { loadResolvedConfig } from "./config/loader.ts"
 export { parseDecision, enforceDecision, DECISION_SCHEMA } from "./decision.ts"
 export { emergencyBrakeReason } from "./emergency-brake.ts"
 export { redactSecrets } from "./redact.ts"
