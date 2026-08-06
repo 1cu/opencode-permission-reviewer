@@ -56,6 +56,47 @@ export interface RiskPolicy {
  *  interactive decision stored outside the repo. */
 export type RepositoryTrust = "trusted" | "untrusted" | "unknown"
 
+/** A declarative policy condition: matches capability/actor facts. Every field
+ *  is optional; the rule matches when ALL specified fields match. */
+export interface PolicyCondition {
+  actionClass?: CapabilityActionClass[]
+  actorProfile?: ActorProfile[]
+  writesWorkspace?: boolean
+  writesExternal?: boolean
+  writesTemporary?: boolean
+  deletion?: boolean
+  executesCode?: boolean
+  createsAdHocCode?: boolean
+  packageManagement?: boolean
+  gitMutation?: boolean
+  networkObserved?: boolean
+  privilegeEscalation?: boolean
+  remoteEnabled?: boolean
+  persistence?: boolean
+  repositoryTrust?: RepositoryTrust[]
+}
+
+/** A declarative rule that routes a request based on capability+actor facts. */
+export interface PolicyRule {
+  id: string
+  source: "builtin" | "global" | "project" | "inline"
+  when: PolicyCondition
+  effect: "review" | "manual" | "deny" | "allow"
+  reason: string
+}
+
+/** The result of evaluating the declarative policy. */
+export interface PolicyTrace {
+  /** Stable hash of the effective rule set (not the matched rules) for audit
+   *  reproducibility. */
+  effectivePolicyHash: string
+  matchedRules: Array<{ id: string; source: string; effect: string; reason: string }>
+  /** The route the engine computed (counterfactual in observe mode: what enforce
+   *  mode WOULD have done with the same facts and rules). */
+  finalRoute: "review" | "manual" | "deny" | "allow"
+  mode: "observe" | "enforce"
+}
+
 export interface ReviewerConfig {
   model: string
   variant: string
@@ -87,6 +128,9 @@ export interface ReviewerConfig {
   riskPolicy: RiskPolicy
   /** Repository trust level derived from global config (never from project). */
   repositoryTrust: RepositoryTrust
+  /** Declarative policy rules (empty by default; observe mode audits the trace
+   *  without enforcing). Project-sourced allow rules are rejected. */
+  policyRules: PolicyRule[]
 }
 
 export interface ReviewEnvelope {
@@ -169,6 +213,13 @@ export interface ReviewAuditRecord {
     persistence?: boolean
     remoteEnabled?: boolean
     gitMutation?: boolean
+  }
+  /** Additive policy trace for audit (observe-only). */
+  policyTrace?: {
+    effectivePolicyHash: string
+    matchedRules: Array<{ id: string; source: string; effect: string; reason: string }>
+    finalRoute: string
+    mode: string
   }
 }
 

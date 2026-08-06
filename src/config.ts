@@ -1,5 +1,6 @@
 import type {
   ActorProfile,
+  PolicyRule,
   RiskPolicy,
   RepositoryTrust,
   ReviewerConfig,
@@ -42,6 +43,7 @@ export const DEFAULT_CONFIG: ReviewerConfig = {
   actorProfiles: {},
   riskPolicy: DEFAULT_RISK_POLICY,
   repositoryTrust: "unknown",
+  policyRules: [],
 }
 
 function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -110,6 +112,32 @@ function resolveRepositoryTrust(value: unknown): RepositoryTrust {
   if (value === "trusted") return "trusted"
   if (value === "untrusted") return "untrusted"
   return "unknown"
+}
+
+const VALID_EFFECTS = new Set(["review", "manual", "deny", "allow"])
+const VALID_SOURCES = new Set(["builtin", "global", "project", "inline"])
+
+/** Parse declarative policy rules. Malformed entries are dropped. */
+function resolvePolicyRules(value: unknown): PolicyRule[] {
+  if (!Array.isArray(value)) return []
+  const out: PolicyRule[] = []
+  for (const raw of value) {
+    if (typeof raw !== "object" || raw === null) continue
+    const r = raw as Record<string, unknown>
+    if (typeof r.id !== "string" || r.id.length === 0) continue
+    if (typeof r.source !== "string" || !VALID_SOURCES.has(r.source)) continue
+    if (typeof r.effect !== "string" || !VALID_EFFECTS.has(r.effect)) continue
+    if (typeof r.reason !== "string" || r.reason.length === 0) continue
+    if (typeof r.when !== "object" || r.when === null) continue
+    out.push({
+      id: r.id,
+      source: r.source as PolicyRule["source"],
+      when: r.when as PolicyRule["when"],
+      effect: r.effect as PolicyRule["effect"],
+      reason: r.reason,
+    })
+  }
+  return out
 }
 
 export function resolveConfig(options: Record<string, unknown> | undefined): ReviewerConfig {
@@ -193,6 +221,7 @@ export function resolveConfig(options: Record<string, unknown> | undefined): Rev
     actorProfiles: resolveActorProfiles(source.actorProfiles),
     riskPolicy: resolveRiskPolicy(source.riskPolicy),
     repositoryTrust: resolveRepositoryTrust(source.repositoryTrust),
+    policyRules: resolvePolicyRules(source.policyRules),
   }
 }
 

@@ -3,6 +3,7 @@ import type {
   ApprovedAnnotation,
   CapabilityAssessment,
   PermissionRequest,
+  PolicyTrace,
   ReviewDecision,
   ReviewEnvelope,
   ReviewExecutionResult,
@@ -13,6 +14,7 @@ import { buildEvidence } from "../context.ts"
 import { DECISION_SCHEMA, enforceDecision, parseDecision } from "../decision.ts"
 import { DEFAULT_TENANT_POLICY, REVIEWER_SYSTEM_PROMPT, buildReviewerPrompt } from "../policy.ts"
 import { emergencyBrakeReason } from "../emergency-brake.ts"
+import { evaluatePolicy } from "../policy/policy-engine.ts"
 import { splitModel } from "../config.ts"
 import { createUiStatus, type ReviewUiStatus } from "../ui-protocol.ts"
 import type { SshAuditSummary } from "../ssh-evidence.ts"
@@ -55,6 +57,8 @@ export class ReviewCoordinator {
   // Bridge for the capability assessment: same lifecycle as the actor/sshAudit
   // bridges (set in collectEnvelope, read in audit(), cleared in process).
   private readonly capabilityByRequest = new Map<string, CapabilityAssessment>()
+  // Bridge for the policy trace (same lifecycle as the other bridges).
+  private readonly policyTraceByRequest = new Map<string, PolicyTrace>()
   /**
    * Request IDs that a human (or any other reply source) resolved while the
    * automatic review was still in flight. The in-flight review must then give
@@ -128,6 +132,7 @@ export class ReviewCoordinator {
       this.sshAuditByRequest.delete(request.id)
       this.actorByRequest.delete(request.id)
       this.capabilityByRequest.delete(request.id)
+      this.policyTraceByRequest.delete(request.id)
     }
   }
 
@@ -207,6 +212,36 @@ export class ReviewCoordinator {
     // A manual reply arriving during context collection (transcript, git, ssh)
     // supersedes the review before we spend a model call on it.
     if (this.isSuperseded(request)) return this.supersedeResult()
+
+    // Evaluate the declarative policy (Layer B). In observe mode this produces
+    // a trace for audit only; in enforce mode a manual/deny route skips the LLM.
+    const policyTrace = evaluatePolicy(
+      envelope.capability,
+      envelope.actor,
+      this.config,
+      this.config.policyRules,
+    )
+    this.policyTraceByRequest.set(request.id, policyTrace)
+    if (this.config.enforcementMode === "enforce") {
+      if (policyTrace.finalRoute === "manual") {
+        const reason = `Declarative policy route: manual. ${policyTrace.matchedRules.map((m) => m.reason).join("; ")}`
+        return { kind: "escalate", reason }
+      }
+      if (policyTrace.finalRoute === "deny") {
+        const reason = `Declarative policy route: deny. ${policyTrace.matchedRules.map((m) => m.reason).join("; ")}`
+        const decision: ReviewDecision = {
+          outcome: "deny",
+          risk_level: "high",
+          user_authorization: "unknown",
+          rationale: reason,
+          confidence: 1,
+        }
+        const superseded = await this.denyAndReply(request, reason, decision)
+        if (superseded) return superseded
+        return { kind: "deny", reason, decision }
+      }
+    }
+
     const reviewed = await this.runReviewer(envelope)
 
     if (reviewed.kind === "allow" && reviewed.decision) {
@@ -346,6 +381,7 @@ export class ReviewCoordinator {
     const ssh = this.sshAuditByRequest.get(request.id)
     const actor = this.actorByRequest.get(request.id)
     const capability = this.capabilityByRequest.get(request.id)
+    const policyTrace = this.policyTraceByRequest.get(request.id)
     const record: ReviewAuditRecord = {
       schemaVersion: 1,
       timestamp: new Date().toISOString(),
@@ -409,6 +445,16 @@ export class ReviewCoordinator {
               ...(capability.process.persistence.value === true ? { persistence: true } : {}),
               ...(capability.remote.enabled.value === true ? { remoteEnabled: true } : {}),
               ...(capability.git.possible.value === true ? { gitMutation: true } : {}),
+            },
+          }),
+      ...(policyTrace === undefined
+        ? {}
+        : {
+            policyTrace: {
+              effectivePolicyHash: policyTrace.effectivePolicyHash,
+              matchedRules: policyTrace.matchedRules,
+              finalRoute: policyTrace.finalRoute,
+              mode: policyTrace.mode,
             },
           }),
     }
