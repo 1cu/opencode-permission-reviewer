@@ -34,6 +34,11 @@ describe("JSONC parser", () => {
     expect(parseJsonc('{"a":"he said \\"hi\\""}')).toEqual({ a: 'he said "hi"' })
   })
 
+  test("trailing comma inside a string is NOT stripped", () => {
+    expect(parseJsonc('{"a":",}"}')).toEqual({ a: ",}" })
+    expect(parseJsonc('{"a":"x, ] y"}')).toEqual({ a: "x, ] y" })
+  })
+
   test("returns empty object on malformed input", () => {
     expect(parseJsonc("{invalid")).toEqual({})
     expect(parseJsonc("")).toEqual({})
@@ -91,6 +96,18 @@ describe("config loader — trust boundary", () => {
       writeFileSync(projectConfigPath(dir), JSON.stringify({ repositoryTrust: "trusted" }))
       const loaded = loadResolvedConfig(undefined, dir)
       expect(loaded.repositoryTrust).toBe("unknown") // not trusted
+    } finally {
+      rmSync(dir, { recursive: true })
+    }
+  })
+
+  test("project config cannot enable enforcementMode", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reviewer-cfg-"))
+    try {
+      mkdirSync(join(dir, ".opencode"), { recursive: true })
+      writeFileSync(projectConfigPath(dir), JSON.stringify({ enforcementMode: "enforce" }))
+      const loaded = loadResolvedConfig(undefined, dir)
+      expect(loaded.enforcementMode).toBe("observe")
     } finally {
       rmSync(dir, { recursive: true })
     }

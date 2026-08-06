@@ -79,9 +79,14 @@ function mergeWithTrustBoundary(
     delete clamped.repositoryTrust
   }
 
-  // enforcementMode: project cannot set "enforce" — only global/inline can.
-  if (clamped.enforcementMode === "enforce") {
-    delete clamped.enforcementMode
+  // enforcementMode: project cannot enable OR disable enforcement — only
+  // global/inline can. A project "enforce" is deleted (can't enable), and a
+  // project "observe" when the trusted baseline is "enforce" is also deleted
+  // (can't downgrade from a global enforcement setting).
+  if (clamped.enforcementMode !== undefined) {
+    if (clamped.enforcementMode === "enforce" || trusted.enforcementMode === "enforce") {
+      delete clamped.enforcementMode
+    }
   }
 
   // riskPolicy.allow: project can narrow cells but not widen them.

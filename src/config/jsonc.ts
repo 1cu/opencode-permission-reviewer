@@ -1,8 +1,9 @@
 /** Minimal JSONC (JSON with comments) parser with zero dependencies.
  *
- * Strips line comments, block comments, and trailing commas, then delegates to
- * `JSON.parse`. String contents are preserved verbatim (comment markers inside
- * strings are NOT stripped). Handles escape sequences.
+ * Strips line comments, block comments, and trailing commas (all in a single
+ * string-aware pass), then delegates to `JSON.parse`. String contents are
+ * preserved verbatim — comment markers and trailing-comma patterns inside
+ * strings are NOT stripped.
  *
  * Used by the config loader to read `~/.config/opencode/permission-reviewer.jsonc`
  * and `.opencode/permission-reviewer.jsonc`. Returns `{}` on parse failure so
@@ -21,24 +22,35 @@ export function parseJsonc(text: string): Record<string, unknown> {
   }
 }
 
-/** Strip JSONC comments and trailing commas while preserving string contents. */
+/** Strip JSONC comments and trailing commas while preserving string contents.
+ *  Trailing commas are handled in the same pass as comments (both are
+ *  string-aware), so a `,}` inside a string value is never corrupted. */
 function stripCommentsAndTrailingCommas(input: string): string {
   let out = ""
   let i = 0
   const len = input.length
+  // Tracks the last non-whitespace character appended to `out`. Used to detect
+  // trailing commas: when we encounter `}` or `]`, we check if the last real
+  // character was `,` and remove it.
+  let lastReal = ""
+  const append = (ch: string) => {
+    out += ch
+    if (ch !== " " && ch !== "\t" && ch !== "\n" && ch !== "\r") lastReal = ch
+  }
+
   while (i < len) {
     const ch = input[i]!
     const next = input[i + 1]
 
     // String literal — copy verbatim until the closing quote.
     if (ch === '"') {
-      out += ch
+      append(ch)
       i += 1
       while (i < len) {
         const c = input[i]!
-        out += c
+        append(c)
         if (c === "\\" && i + 1 < len) {
-          out += input[i + 1]!
+          append(input[i + 1]!)
           i += 2
           continue
         }
@@ -63,10 +75,19 @@ function stripCommentsAndTrailingCommas(input: string): string {
       continue
     }
 
-    out += ch
+    // Structural close: if the last real character was a trailing comma,
+    // remove it before appending the closing brace/bracket.
+    if ((ch === "}" || ch === "]") && lastReal === ",") {
+      // Walk back over the comma (and any whitespace after it in `out`).
+      let j = out.length - 1
+      while (j >= 0 && out[j] !== ",") j -= 1
+      if (j >= 0) out = out.slice(0, j)
+      lastReal = ""
+    }
+
+    append(ch)
     i += 1
   }
 
-  // Remove trailing commas before } or ].
-  return out.replace(/,(\s*[}\]])/g, "$1")
+  return out
 }

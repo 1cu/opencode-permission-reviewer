@@ -229,6 +229,36 @@ describe("schema v2 fields", () => {
     expect(parseDecision({ ...decision("allow"), evidence_completeness: "great" })).toBeUndefined()
   })
 
+  test("asymmetric: scope_alignment present, evidence_completeness absent", () => {
+    const parsed = parseDecision({
+      outcome: "allow",
+      risk_level: "low",
+      user_authorization: "high",
+      rationale: "safe",
+      confidence: 0.9,
+      scope_alignment: "aligned",
+    })
+    expect(parsed?.scope_alignment).toBe("aligned")
+    expect(parsed?.evidence_completeness).toBe("unknown")
+  })
+
+  test("asymmetric: evidence_completeness present, scope_alignment absent", () => {
+    const parsed = parseDecision({
+      outcome: "allow",
+      risk_level: "low",
+      user_authorization: "high",
+      rationale: "safe",
+      confidence: 0.9,
+      evidence_completeness: "insufficient",
+    })
+    expect(parsed?.scope_alignment).toBe("unknown")
+    expect(parsed?.evidence_completeness).toBe("insufficient")
+  })
+
+  test("DECISION_SCHEMA rejects unknown fields (additionalProperties: false)", () => {
+    expect(DECISION_SCHEMA.additionalProperties).toBe(false)
+  })
+
   test("DECISION_SCHEMA includes the v2 properties", () => {
     expect(DECISION_SCHEMA.properties).toHaveProperty("scope_alignment")
     expect(DECISION_SCHEMA.properties).toHaveProperty("evidence_completeness")

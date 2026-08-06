@@ -220,6 +220,8 @@ describe("characterization gaps (baseline prereq)", () => {
     const audits = (harness.ctx as unknown as { auditRecords: ReviewAuditRecord[] }).auditRecords
     expect(audits).toHaveLength(1)
     expect(audits[0]!.schemaVersion).toBe(1)
+    expect(audits[0]!.decisionSchemaVersion).toBe(2)
+    expect(audits[0]!.promptVersion).toBe("1.0.0")
   })
 })
 
