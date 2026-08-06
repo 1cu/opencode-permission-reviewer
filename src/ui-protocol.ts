@@ -1,4 +1,4 @@
-import type { PermissionRequest, ReviewDecision } from "./types.ts"
+import type { ActorProfile, PermissionRequest, ReviewDecision } from "./types.ts"
 
 export const UI_COMMAND_PREFIX = "opencode-permission-reviewer.status."
 export const UI_START_GRACE_MS = 3_000
@@ -19,6 +19,10 @@ export interface ReviewUiStatus {
   timeoutMs: number
   reason?: string
   decision?: ReviewDecision
+  /** Resolved actor (absent on the initial "reviewing" phase, before context
+   *  collection completes). */
+  actorName?: string
+  actorProfile?: ActorProfile
 }
 
 function boundedText(value: string, max: number): string {
@@ -54,6 +58,8 @@ export function createUiStatus(
     reason?: string
     decision?: ReviewDecision
     emittedAt?: number
+    actorName?: string
+    actorProfile?: ActorProfile
   },
 ): ReviewUiStatus {
   return {
@@ -69,6 +75,8 @@ export function createUiStatus(
     timeoutMs: options.timeoutMs,
     ...(options.reason === undefined ? {} : { reason: boundedText(options.reason, 2_000) }),
     ...(options.decision === undefined ? {} : { decision: options.decision }),
+    ...(options.actorName === undefined ? {} : { actorName: boundedText(options.actorName, 100) }),
+    ...(options.actorProfile === undefined ? {} : { actorProfile: options.actorProfile }),
   }
 }
 
@@ -118,6 +126,18 @@ export function parseUiStatus(value: unknown): ReviewUiStatus | undefined {
     return
   if (value.reason !== undefined && typeof value.reason !== "string") return
   if (value.decision !== undefined && !isDecision(value.decision)) return
+  if (value.actorName !== undefined && typeof value.actorName !== "string") return
+  if (
+    value.actorProfile !== undefined &&
+    value.actorProfile !== "read-only" &&
+    value.actorProfile !== "validation" &&
+    value.actorProfile !== "workspace" &&
+    value.actorProfile !== "operator" &&
+    value.actorProfile !== "reviewer" &&
+    value.actorProfile !== "unknown"
+  ) {
+    return
+  }
 
   return value as unknown as ReviewUiStatus
 }

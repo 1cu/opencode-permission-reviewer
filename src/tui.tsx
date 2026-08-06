@@ -94,6 +94,9 @@ function ReviewPanel(props: {
           <text fg={theme().text} wrapMode="word">
             {props.status.action}
           </text>
+          <Show when={props.status.actorName}>
+            <text fg={theme().textMuted}>· actor {props.status.actorName}</text>
+          </Show>
         </box>
 
         <Show when={props.status.phase === "reviewing"}>

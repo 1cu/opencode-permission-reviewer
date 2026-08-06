@@ -2,6 +2,7 @@ import type { PermissionRequest, ReviewEnvelope, ReviewerConfig } from "../types
 import { buildIntentHistory, buildTranscript, normalizeMessages } from "../context.ts"
 import type { OpenCodeClientLike } from "../opencode/types.ts"
 import { responseData } from "../opencode/transport.ts"
+import { resolveActorContext } from "./actor-resolver.ts"
 import type { EvidenceProvider } from "../evidence/provider.ts"
 import type { SshAuditSummary } from "../ssh-evidence.ts"
 import { SshEvidenceProvider } from "../evidence/ssh-provider.ts"
@@ -35,6 +36,10 @@ export async function assembleEvidence(
   })
   const messages = normalizeMessages(responseData(response, "session.messages"))
 
+  // Resolve actor/lineage/intent. The resolver is resilient — it never throws,
+  // degrading to "unknown" — so this cannot block a review.
+  const actor = await resolveActorContext(request, messages, ctx.client, ctx.directory, ctx.config)
+
   const fragments = await Promise.all(
     providers.map((provider) =>
       provider.collect({
@@ -66,6 +71,10 @@ export async function assembleEvidence(
     enrichment,
     sshAudit,
     ...(preflightDenial === undefined ? {} : { preflightDenial }),
+    actor: actor.actor,
+    lineage: actor.lineage,
+    intent: actor.intent,
+    evidenceCompleteness: actor.completeness,
   }
 }
 

@@ -222,3 +222,71 @@ describe("characterization gaps (0.6 prereq)", () => {
     expect(audits[0]!.schemaVersion).toBe(1)
   })
 })
+
+describe("actor-aware context threading", () => {
+  test("audit record carries the resolved actor and root session", async () => {
+    const client = new MockClient()
+    // Assistant message that issued the tool call carries agent/mode; the
+    // resolver reads them and records a confirmed actor in the audit record.
+    client.messageData = [
+      {
+        info: { id: "msg_1", role: "assistant", agent: "build", mode: "build" },
+        parts: [
+          {
+            type: "tool",
+            tool: "bash",
+            callID: "call_1",
+            state: { input: { command: "printf safe" } },
+          },
+        ],
+      },
+    ]
+    const harness = runtime(client)
+    await harness.runtime.process(request())
+    const audits = (harness.ctx as unknown as { auditRecords: ReviewAuditRecord[] }).auditRecords
+    expect(audits).toHaveLength(1)
+    expect(audits[0]!.actor).toMatchObject({
+      name: "build",
+      mode: "build",
+      identityCompleteness: "complete",
+    })
+    expect(audits[0]!.rootSessionID).toBe("ses_main")
+  })
+
+  test("reviewer prompt includes actor and lineage evidence sections", async () => {
+    const client = new MockClient()
+    client.messageData = [
+      {
+        info: { id: "msg_1", role: "assistant", agent: "build", mode: "build" },
+        parts: [
+          {
+            type: "tool",
+            tool: "bash",
+            callID: "call_1",
+            state: { input: { command: "printf safe" } },
+          },
+        ],
+      },
+    ]
+    const harness = runtime(client)
+    await harness.runtime.process(request())
+    const prompt = JSON.stringify(client.prompts[0])
+    expect(prompt).toContain("ACTOR_CONTEXT")
+    expect(prompt).toContain("SESSION_LINEAGE")
+    expect(prompt).toContain("DIRECT_USER_INTENT")
+    expect(prompt).toContain("DELEGATED_TASK")
+  })
+
+  test("unknown actor still produces an audit record without an actor name", async () => {
+    // No agent/mode on the assistant message and no session.get on the mock.
+    const harness = runtime()
+    await harness.runtime.process(request())
+    const audits = (harness.ctx as unknown as { auditRecords: ReviewAuditRecord[] }).auditRecords
+    expect(audits).toHaveLength(1)
+    expect(audits[0]!.actor).toMatchObject({
+      profile: "unknown",
+      identityCompleteness: "unknown",
+    })
+    expect(audits[0]!.actor).not.toHaveProperty("name")
+  })
+})

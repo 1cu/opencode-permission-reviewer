@@ -1,8 +1,13 @@
 import type {
+  ActorContext,
+  EvidenceCompleteness,
+  IntentBlock,
   MessageWithParts,
   PermissionRequest,
+  Provenanced,
   ReviewEnvelope,
   ReviewerConfig,
+  SessionLineage,
 } from "./types.ts"
 import { redactSecrets } from "./redact.ts"
 
@@ -146,6 +151,9 @@ export function buildEvidence(envelope: ReviewEnvelope, config: ReviewerConfig):
   const evidence = [
     `WORKING_DIRECTORY\n${envelope.directory}`,
     `WORKTREE\n${envelope.worktree}`,
+    // Actor/lineage/intent sections precede PENDING_PERMISSION so the reviewer
+    // judges the request knowing who is asking and why.
+    ...actorEvidenceSections(envelope, config),
     `PENDING_PERMISSION\n${stableJson(
       {
         permission: request.permission,
@@ -166,6 +174,95 @@ export function buildEvidence(envelope: ReviewEnvelope, config: ReviewerConfig):
       config.maxEnrichmentChars +
       config.maxIntentChars,
   )
+}
+
+// --- actor/lineage/intent prompt sections -----------------------------------
+
+function provValue<T>(p: Provenanced<T> | undefined): T | "unavailable" {
+  return p === undefined ? "unavailable" : p.value
+}
+
+function renderActor(actor: ActorContext, max: number): string {
+  return stableJson(
+    {
+      agent: provValue(actor.agentName),
+      mode: provValue(actor.mode),
+      profile: provValue(actor.profile),
+      identityCompleteness: actor.identityCompleteness,
+      sessionID: actor.sessionID,
+      parentSessionID: provValue(actor.parentSessionID),
+      rootSessionID: provValue(actor.rootSessionID),
+      delegationDepth: provValue(actor.delegationDepth),
+    },
+    max,
+  )
+}
+
+function renderLineage(lineage: SessionLineage, max: number): string {
+  return stableJson(
+    {
+      depth: lineage.depth,
+      rootSessionID: lineage.rootSessionID,
+      cycleDetected: lineage.cycleDetected,
+      truncated: lineage.truncated,
+      missingParents: lineage.missingParents,
+      chain: lineage.nodes.map((n) => ({
+        sessionID: n.sessionID,
+        ...(n.actorName === undefined ? {} : { actor: n.actorName }),
+        ...(n.mode === undefined ? {} : { mode: n.mode }),
+      })),
+    },
+    max,
+  )
+}
+
+function renderIntentBlocks(blocks: IntentBlock[], max: number): string {
+  if (blocks.length === 0) return "<none />"
+  return stableJson(
+    blocks.map((b) => ({
+      actor: b.actor,
+      text: b.text,
+      ...(b.createdAt === undefined ? {} : { createdAt: b.createdAt }),
+    })),
+    max,
+  )
+}
+
+function renderCompleteness(c: EvidenceCompleteness, max: number): string {
+  return stableJson(
+    {
+      overall: c.overall,
+      actor: c.actor,
+      lineage: c.lineage,
+      directUserIntent: c.directUserIntent,
+      delegatedTask: c.delegatedTask,
+      ...(c.reasons.length === 0 ? {} : { reasons: c.reasons }),
+    },
+    max,
+  )
+}
+
+/** Render the actor-context prompt sections, or a single placeholder when
+ *  resolution produced nothing (keeps the prompt compact for unknown actors). */
+export function actorEvidenceSections(envelope: ReviewEnvelope, config: ReviewerConfig): string[] {
+  const actor = envelope.actor
+  const lineage = envelope.lineage
+  const intent = envelope.intent
+  const completeness = envelope.evidenceCompleteness
+  if (actor === undefined || lineage === undefined || intent === undefined) {
+    return ["ACTOR_CONTEXT\n<unavailable />"]
+  }
+  const cap = config.maxPartChars * 2
+  const sections = [
+    `ACTOR_CONTEXT\n${renderActor(actor, cap)}`,
+    `SESSION_LINEAGE\n${renderLineage(lineage, cap)}`,
+    `DIRECT_USER_INTENT\n${renderIntentBlocks(intent.directUserIntent, cap)}`,
+    `DELEGATED_TASK\n${renderIntentBlocks(intent.delegatedTask, cap)}`,
+  ]
+  if (completeness !== undefined) {
+    sections.push(`EVIDENCE_COMPLETENESS\n${renderCompleteness(completeness, cap)}`)
+  }
+  return sections
 }
 
 export function normalizeMessages(value: unknown): MessageWithParts[] {

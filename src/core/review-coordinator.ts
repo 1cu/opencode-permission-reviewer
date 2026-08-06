@@ -1,4 +1,5 @@
 import type {
+  ActorContext,
   ApprovedAnnotation,
   PermissionRequest,
   ReviewDecision,
@@ -46,6 +47,10 @@ export class ReviewCoordinator {
   private readonly reviewerSessions = new Set<string>()
   private readonly approvedByCall = new Map<string, ApprovedAnnotation[]>()
   private readonly sshAuditByRequest = new Map<string, SshAuditSummary[]>()
+  // Bridge for the resolved actor context, mirroring sshAuditByRequest: the
+  // envelope holds it for the reviewer prompt, audit() runs after the model
+  // call and reads the per-request bridge so both paths observe the same actor.
+  private readonly actorByRequest = new Map<string, ActorContext>()
   /**
    * Request IDs that a human (or any other reply source) resolved while the
    * automatic review was still in flight. The in-flight review must then give
@@ -117,6 +122,7 @@ export class ReviewCoordinator {
       throw error
     } finally {
       this.sshAuditByRequest.delete(request.id)
+      this.actorByRequest.delete(request.id)
     }
   }
 
@@ -318,6 +324,7 @@ export class ReviewCoordinator {
     // model call and reads the per-request bridge so both the success and the
     // error-path audits observe the same ssh summary.
     this.sshAuditByRequest.set(request.id, envelope.sshAudit)
+    if (envelope.actor !== undefined) this.actorByRequest.set(request.id, envelope.actor)
     return envelope
   }
 
@@ -329,6 +336,7 @@ export class ReviewCoordinator {
     if (!this.ctx.writeAudit) return
     const decision = result.decision
     const ssh = this.sshAuditByRequest.get(request.id)
+    const actor = this.actorByRequest.get(request.id)
     const record: ReviewAuditRecord = {
       schemaVersion: 1,
       timestamp: new Date().toISOString(),
@@ -348,6 +356,18 @@ export class ReviewCoordinator {
       ...(result.reviewSessionID === undefined
         ? {}
         : { reviewerSessionID: result.reviewSessionID }),
+      ...(actor === undefined
+        ? {}
+        : {
+            rootSessionID: actor.rootSessionID.value,
+            actor: {
+              ...(actor.agentName.value === undefined ? {} : { name: actor.agentName.value }),
+              ...(actor.mode.value === undefined ? {} : { mode: actor.mode.value }),
+              profile: actor.profile.value,
+              identityCompleteness: actor.identityCompleteness,
+              delegationDepth: actor.delegationDepth.value,
+            },
+          }),
       ...(!ssh?.length ? {} : { ssh }),
     }
     await this.ctx.writeAudit(record).catch((error) => {
@@ -482,12 +502,15 @@ export class ReviewCoordinator {
     decision?: ReviewDecision,
   ): Promise<void> {
     if (!this.ctx.publishUiStatus) return
+    const actor = this.actorByRequest.get(request.id)
     const status = createUiStatus(request, phase, {
       model: this.config.model,
       variant: this.config.variant,
       timeoutMs: this.config.timeoutMs,
       ...(reason === undefined ? {} : { reason }),
       ...(decision === undefined ? {} : { decision }),
+      ...(actor?.agentName.value === undefined ? {} : { actorName: actor.agentName.value }),
+      ...(actor === undefined ? {} : { actorProfile: actor.profile.value }),
     })
     await this.ctx.publishUiStatus(status).catch((error) => {
       this.log("failed to publish reviewer UI status", {
