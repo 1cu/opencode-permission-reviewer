@@ -113,13 +113,22 @@ function mergeWithTrustBoundary(
     )
   }
 
-  // policyRules: tag project-sourced rules so the engine can filter allow-rules
-  // (a project file cannot declare source:"inline" to bypass the filter).
+  // policyRules: the project layer ADDS rules (which can only tighten — its
+  // allow rules are filtered by the engine), it never erases trusted
+  // global/inline deny/manual rules. Combine instead of replace so a repo
+  // cannot weaken policy by declaring an empty or narrower rule set. Project
+  // rules are also re-tagged source:"project" so they cannot spoof
+  // source:"inline" to bypass the project-allow filter.
   if (Array.isArray(clamped.policyRules)) {
-    clamped.policyRules = (clamped.policyRules as Array<Record<string, unknown>>).map((rule) => ({
+    const projectRules = (clamped.policyRules as Array<Record<string, unknown>>).map((rule) => ({
       ...rule,
       source: "project" as PolicyRule["source"],
     }))
+    const trustedRules = Array.isArray(trusted.policyRules) ? trusted.policyRules : []
+    clamped.policyRules = [...trustedRules, ...projectRules]
+  } else if (Array.isArray(trusted.policyRules)) {
+    // Project omitted policyRules entirely: preserve the trusted rules.
+    clamped.policyRules = trusted.policyRules
   }
 
   return { ...trusted, ...clamped }

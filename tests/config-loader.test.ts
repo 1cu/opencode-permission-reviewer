@@ -240,6 +240,57 @@ describe("config loader — trust boundary", () => {
     }
   })
 
+  test("project config cannot erase trusted policy rules", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reviewer-cfg-"))
+    try {
+      mkdirSync(join(dir, ".opencode"), { recursive: true })
+      // A trusted (inline) deny rule the user relies on.
+      const inlineDeny = {
+        id: "inline-deny-network",
+        source: "inline",
+        when: { actionClass: ["network"] },
+        effect: "deny",
+        reason: "no network by default",
+      }
+      // The project tries to erase it with an empty rule set.
+      writeFileSync(projectConfigPath(dir), JSON.stringify({ policyRules: [] }))
+      const loaded = loadResolvedConfig({ policyRules: [inlineDeny] }, dir)
+      // The trusted deny rule survives; the project cannot weaken policy.
+      expect(loaded.policyRules.some((r) => r.id === "inline-deny-network")).toBe(true)
+    } finally {
+      rmSync(dir, { recursive: true })
+    }
+  })
+
+  test("project policy rules are combined with trusted rules", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reviewer-cfg-"))
+    try {
+      mkdirSync(join(dir, ".opencode"), { recursive: true })
+      writeFileSync(
+        projectConfigPath(dir),
+        JSON.stringify({
+          policyRules: [
+            {
+              id: "project-manual-remote",
+              source: "inline",
+              when: { remoteEnabled: true },
+              effect: "manual",
+              reason: "remote needs review",
+            },
+          ],
+        }),
+      )
+      const loaded = loadResolvedConfig(undefined, dir)
+      // The project rule is retained and re-tagged as source: "project".
+      expect(loaded.policyRules.some((r) => r.id === "project-manual-remote")).toBe(true)
+      expect(loaded.policyRules.find((r) => r.id === "project-manual-remote")?.source).toBe(
+        "project",
+      )
+    } finally {
+      rmSync(dir, { recursive: true })
+    }
+  })
+
   test("malformed project config file degrades to defaults", () => {
     const dir = mkdtempSync(join(tmpdir(), "reviewer-cfg-"))
     try {

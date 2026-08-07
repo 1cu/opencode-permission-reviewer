@@ -83,13 +83,20 @@ export function readAuditSummary(path: string): AuditSummary {
   const actorCounts = new Map<string, number>()
   for (let i = 0; i < lines.length; i++) {
     const lineNo = i + 1
-    let record: Record<string, unknown>
+    let parsed: unknown
     try {
-      record = JSON.parse(lines[i]!) as Record<string, unknown>
+      parsed = JSON.parse(lines[i]!)
     } catch {
       summary.invalidLines++
       continue
     }
+    // A bare primitive or null/array is not an audit record; count it as an
+    // invalid line instead of throwing on the property accesses below.
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      summary.invalidLines++
+      continue
+    }
+    const record = parsed as Record<string, unknown>
     summary.validRecords++
     bump(summary.bySchemaVersion, String(record.schemaVersion ?? 1))
     if (typeof record.outcome === "string") bump(summary.byOutcome, record.outcome)
