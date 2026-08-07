@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # npm dependencies — weekly checks, grouped to reduce PR noise.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Non-breaking type+patch updates batch together.
+      patch-and-minor:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: chore
+      include: scope
+
+  # GitHub Actions used in workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: ci
+      include: scope

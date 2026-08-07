@@ -1,0 +1,9 @@
+# Default owner for the whole repository.
+* @Warc0s
+
+# Safety-critical paths require explicit review attention (no auto-merge).
+/src/decision.ts      @Warc0s
+/src/policy.ts        @Warc0s
+/src/emergency-brake.ts @Warc0s
+/src/policy/          @Warc0s
+/src/opencode/        @Warc0s

@@ -1,0 +1,92 @@
+name: Bug report
+description: Report a bug in the permission reviewer plugin
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. The more diagnostic
+        detail you include, the faster we can reproduce it.
+
+        For security vulnerabilities, **do not** use this form — use
+        [private vulnerability reporting](https://github.com/Warc0s/opencode-permission-reviewer/security/advisories/new)
+        instead.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear description of what went wrong and what you expected instead.
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: The `version` field from `package.json`, or the tag you installed.
+      placeholder: "0.9.0"
+    validations:
+      required: true
+
+  - type: input
+    id: opencode-version
+    attributes:
+      label: OpenCode version
+      description: Output of `opencode --version`.
+      placeholder: "1.18.15"
+    validations:
+      required: true
+
+  - type: input
+    id: bun-version
+    attributes:
+      label: Bun version
+      description: Output of `bun --version`.
+      placeholder: "1.3.5"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS 15 / Ubuntu 24.04 / Windows 11"
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Adapter diagnostics
+      description: |
+        Paste the output of `opencode-permission-reviewer doctor`. This shows
+        the resolved versions, config sources, policy mode, and reply-transport
+        capability probe — usually enough to localize the problem.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The minimal command + permission policy that triggers the bug.
+      placeholder: |
+        1. Configure permission policy: ...
+        2. Ask the agent to run: ...
+        3. Observed: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: audit
+    attributes:
+      label: Audit record (optional)
+      description: |
+        If the bug involves a wrong allow/deny/escalate decision, paste the
+        relevant JSONL line from the audit trail. **Redact** any secrets,
+        private paths, or hostnames first. Remote commands are already stored
+        as SHA-256, so they are safe to share.
+      render: json

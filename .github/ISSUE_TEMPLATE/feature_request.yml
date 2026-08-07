@@ -1,0 +1,63 @@
+name: Feature request
+description: Suggest a new capability or policy behavior for the reviewer
+title: "[feature] "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. This plugin is intentionally conservative
+        about new auto-approval surface, so feature requests that *expand*
+        automatic approval of risky actions are unlikely to be accepted.
+        Requests that improve *safety, transparency, or configurability* are
+        very welcome.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that the plugin currently does not support?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would the ideal behavior look like? A policy rule, a config knob, a CLI command, a TUI change?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you've tried or other tools that handle this.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Policy engine / declarative rules
+        - Capability analysis
+        - Actor resolution
+        - Reviewer model / prompt
+        - Audit trail
+        - TUI overlay
+        - CLI (doctor / explain / init / audit)
+        - Configuration
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety checklist
+      description: Confirm your request does not weaken existing invariants.
+      options:
+        - label: This does not request auto-approval of critical-risk or high-risk-with-unknown-authorization actions.
+          required: true
+        - label: This does not request weakening the project-config trust boundary.
+          required: true
