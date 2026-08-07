@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-07
+
+The first stable release. The public configuration schema, the audit schema
+(v2), and the OpenCode 1.x adapter contract are frozen for the 1.x line. See
+[`docs/migration-guide.md`](./docs/migration-guide.md) for the upgrade path.
+
+### Added
+
+- Reference documentation: migration guide, threat model, policy reference,
+  capability model, actor resolution, compatibility policy, and architecture
+  decision records (`docs/`).
+- Community health files: code of conduct, issue templates (bug report with
+  adapter-diagnostics requirement, feature request with a safety checklist),
+  pull-request template, and code owners.
+- Release pipeline: tag-driven workflow that builds, publishes to npm with
+  build provenance, generates SHA-256 checksums and a CycloneDX SBOM, and
+  creates a GitHub Release with all artifacts attached (`.github/workflows/release.yml`).
+- Security automation: CodeQL scan and Dependabot configuration.
+- Coverage gate: `bun run test:coverage` enforces ≥ 90% global line coverage
+  and 100% on safety-critical modules (decision, policy, emergency brake,
+  event normalization, reply transport, redaction).
+
 ### Fixed
 
 - TUI overlay renders again: the `./tui` export points at raw
