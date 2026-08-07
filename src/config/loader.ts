@@ -74,10 +74,22 @@ function mergeWithTrustBoundary(
     delete clamped.audit
   }
 
+  // auditPath: only trusted global/inline config may choose the audit
+  // destination. A repository must never be able to redirect or silence the
+  // audit trail by pointing it at /dev/null or a path it controls.
+  delete clamped.auditPath
+
   // repositoryTrust: project cannot set "trusted" — only global/inline can.
   if (clamped.repositoryTrust === "trusted") {
     delete clamped.repositoryTrust
   }
+
+  // actorProfiles: name→profile mappings are a trust delegation (which agent
+  // gets which capability profile). Only trusted global/inline config may
+  // grant them; otherwise a repository could promote its own agent to a
+  // higher-privilege profile ("build" → "operator"). trustedProjects opt-in is
+  // a future item; until then the project layer cannot define mappings at all.
+  delete clamped.actorProfiles
 
   // enforcementMode: project cannot enable OR disable enforcement — only
   // global/inline can. A project "enforce" is deleted (can't enable), and a

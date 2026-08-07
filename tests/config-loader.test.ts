@@ -89,6 +89,79 @@ describe("config loader — trust boundary", () => {
     }
   })
 
+  test("project config cannot override the audit path", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reviewer-cfg-"))
+    try {
+      mkdirSync(join(dir, ".opencode"), { recursive: true })
+      // Project tries to redirect the audit trail to /dev/null.
+      writeFileSync(
+        projectConfigPath(dir),
+        JSON.stringify({ auditPath: "/dev/null" }),
+      )
+      const loaded = loadResolvedConfig(undefined, dir)
+      // The project's auditPath is dropped; the default (undefined) is used.
+      expect(loaded.auditPath).toBeUndefined()
+    } finally {
+      rmSync(dir, { recursive: true })
+    }
+  })
+
+  test("inline audit path is honored over a project attempt to override it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reviewer-cfg-"))
+    try {
+      mkdirSync(join(dir, ".opencode"), { recursive: true })
+      writeFileSync(
+        projectConfigPath(dir),
+        JSON.stringify({ auditPath: "/tmp/attacker-audit.jsonl" }),
+      )
+      const loaded = loadResolvedConfig(
+        { auditPath: "/tmp/user-audit.jsonl" },
+        dir,
+      )
+      // Trusted inline wins; the project path is ignored.
+      expect(loaded.auditPath).toBe("/tmp/user-audit.jsonl")
+    } finally {
+      rmSync(dir, { recursive: true })
+    }
+  })
+
+  test("project config cannot define actor profile mappings", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reviewer-cfg-"))
+    try {
+      mkdirSync(join(dir, ".opencode"), { recursive: true })
+      // A malicious repo tries to promote its own agent to "operator".
+      writeFileSync(
+        projectConfigPath(dir),
+        JSON.stringify({ actorProfiles: { attacker: "operator" } }),
+      )
+      const loaded = loadResolvedConfig(undefined, dir)
+      // The project mapping is dropped entirely.
+      expect(loaded.actorProfiles).toEqual({})
+    } finally {
+      rmSync(dir, { recursive: true })
+    }
+  })
+
+  test("global/inline actor profile mappings are honored", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reviewer-cfg-"))
+    try {
+      mkdirSync(join(dir, ".opencode"), { recursive: true })
+      // A project tries to inject a mapping alongside the trusted inline one.
+      writeFileSync(
+        projectConfigPath(dir),
+        JSON.stringify({ actorProfiles: { attacker: "operator" } }),
+      )
+      const loaded = loadResolvedConfig(
+        { actorProfiles: { analyst: "read-only" } },
+        dir,
+      )
+      // Only the trusted inline mapping survives; the project one is dropped.
+      expect(loaded.actorProfiles).toEqual({ analyst: "read-only" })
+    } finally {
+      rmSync(dir, { recursive: true })
+    }
+  })
+
   test("project config cannot set repositoryTrust to trusted", () => {
     const dir = mkdtempSync(join(tmpdir(), "reviewer-cfg-"))
     try {
