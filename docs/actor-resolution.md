@@ -101,22 +101,22 @@ override.
 
 ## Degradation
 
-Actor resolution **never throws**. Every failure degrades to unknown evidence
-and the review proceeds:
+Actor resolution **never throws**. Every failure degrades to partial or
+unknown evidence and the review proceeds:
 
-| Failure                                  | Result                                                                                            |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `session.get` missing / throws / errors  | Walk stops; `lineage.depth = 0`, `rootSessionID = current`                                        |
-| `session.messages` failure (parent/root) | Empty intent blocks; reasons note the gap                                                         |
-| Cycle detected                           | `cycleDetected: true`, walk stops                                                                 |
-| Bound hit                                | `truncated: true`, next ancestor in `missingParents`                                              |
-| Any unexpected throw                     | Full fallback: `agentName`/`mode` undefined, `profile: "unknown"`, all provenance `"unavailable"` |
+| Failure                                  | Result                                                                                                                                                                        |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session.get` missing / throws / errors  | Walk stops at the failure; any parents resolved before the failure are preserved, and `rootSessionID` is the last resolved ancestor (or the current session if none resolved) |
+| `session.messages` failure (parent/root) | Empty intent blocks; reasons note the gap                                                                                                                                     |
+| Cycle detected                           | `cycleDetected: true`, walk stops                                                                                                                                             |
+| Bound hit                                | `truncated: true`, next ancestor in `missingParents`                                                                                                                          |
+| Any unexpected throw                     | Full fallback: `agentName`/`mode` undefined, `profile: "unknown"`, all provenance `"unavailable"`                                                                             |
 
-The reviewer then sees low completeness evidence, and the deterministic risk
-gate forces escalation for anything non-trivial (`user_authorization: unknown`
-→ medium+ risk escalates). Degradation is never silent: `missingParents`,
-`truncated`, `cycleDetected`, and completeness reasons all surface in the
-prompt and audit.
+The reviewer then sees partial completeness evidence. When the evidence makes
+the reviewer report `user_authorization: "unknown"`, the deterministic risk
+gate escalates anything medium-or-higher. Degradation is never silent:
+`missingParents`, `truncated`, `cycleDetected`, and completeness reasons all
+surface in the prompt and audit.
 
 ## `actorProfiles`
 

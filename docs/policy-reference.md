@@ -185,18 +185,18 @@ reasons.
     {
       "id": "validator-no-code",
       "source": "global",
-      "when": { "actorProfile": ["read-only"], "executesCode: true },
+      "when": { "actorProfile": ["read-only"], "executesCode": true },
       "effect": "manual",
-      "reason": "Read-only validator attempting code execution"
+      "reason": "Read-only validator attempting code execution",
     },
     {
       "id": "validator-no-write",
       "source": "global",
       "when": { "actorProfile": ["read-only"], "writesWorkspace": true },
       "effect": "manual",
-      "reason": "Read-only validator attempting workspace write"
-    }
-  ]
+      "reason": "Read-only validator attempting workspace write",
+    },
+  ],
 }
 ```
 

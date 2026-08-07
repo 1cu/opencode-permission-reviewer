@@ -50,6 +50,15 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
+      # Guard against mistags: the tag version must match package.json.
+      - name: Verify tag matches package.json version
+        run: |
+          pkg_version=$(node -p "require('./package.json').version")
+          if [ "${{ steps.meta.outputs.version }}" != "$pkg_version" ]; then
+            echo "Tag version ${{ steps.meta.outputs.version }} != package.json version $pkg_version"
+            exit 1
+          fi
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.5"
@@ -75,22 +84,33 @@ jobs:
           sha256sum *.tgz > checksums-sha256.txt
           cat checksums-sha256.txt
 
+      # Install Node/npm for publishing. setup-node configures the npm
+      # registry auth from NODE_AUTH_TOKEN via .npmrc automatically.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
       # Publish to npm with build provenance (signed OIDC attestation).
+      # Provenance requires publishing from the repo root (with .git present),
+      # so we do not pass the pre-packed tarball here; npm packs internally.
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          npm config set //registry.npmjs.org/ ':authToken=${NODE_AUTH_TOKEN}'
-          npm publish "$(ls artifacts/*.tgz)" \
+          npm publish \
             --provenance \
             --access public \
             --tag "${{ steps.meta.outputs.dist_tag }}"
 
-      # Generate a CycloneDX SBOM from the packed tarball.
+      # Generate a CycloneDX SBOM from the extracted tarball contents.
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0
+        run: |
+          mkdir -p sbom-src
+          tar -xzf artifacts/*.tgz -C sbom-src --strip-components=1
+      - uses: anchore/sbom-action@v0
         with:
-          artifact: artifacts
+          path: sbom-src
           format: cyclonedx-json
           output-file: artifacts/sbom.cdx.json
           upload-artifact: false
@@ -110,22 +130,20 @@ jobs:
             in_section { print }
           ' CHANGELOG.md)
 
-          args=(release create "${{ steps.meta.outputs.tag }}" \
-            --title "${{ steps.meta.outputs.tag }}" \
-            --target main \
-            --notes-file -)
-
+          tag="${{ steps.meta.outputs.tag }}"
           if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
-            args+=(--prerelease)
+            gh release create "$tag" --title "$tag" --target main --prerelease
+          else
+            gh release create "$tag" --title "$tag" --target main
           fi
 
           if [ -n "$notes" ]; then
-            printf '%s\n' "$notes" | gh "${args[@]}"
+            printf '%s\n' "$notes" | gh release edit "$tag" --notes-file -
           else
-            gh "${args[@]}" --generate-notes
+            gh release edit "$tag" --generate-notes
           fi
 
-          gh release upload "${{ steps.meta.outputs.tag }}" \
+          gh release upload "$tag" \
             artifacts/*.tgz \
             artifacts/checksums-sha256.txt \
             artifacts/sbom.cdx.json \

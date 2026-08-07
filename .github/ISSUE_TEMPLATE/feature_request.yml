@@ -12,6 +12,9 @@ body:
         Requests that improve *safety, transparency, or configurability* are
         very welcome.
 
+        **Never paste secrets, tokens, passwords, private keys, or personal
+        filesystem paths** into any field.
+
   - type: textarea
     id: problem
     attributes:

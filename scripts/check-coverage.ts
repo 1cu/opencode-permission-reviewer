@@ -48,9 +48,15 @@ function parseLcov(path: string): FileCoverage[] {
     if (line.startsWith("SF:")) {
       current = { path: line.slice(3), linesFound: 0, linesHit: 0 }
     } else if (line.startsWith("LF:") && current) {
-      current.linesFound += Number(line.slice(3))
+      const n = Number(line.slice(3))
+      // Reject non-integer / negative values so a malformed report cannot
+      // produce NaN totals that silently pass the threshold.
+      if (!Number.isInteger(n) || n < 0) continue
+      current.linesFound += n
     } else if (line.startsWith("LH:") && current) {
-      current.linesHit += Number(line.slice(3))
+      const n = Number(line.slice(3))
+      if (!Number.isInteger(n) || n < 0) continue
+      current.linesHit += n
     } else if (line === "end_of_record" && current) {
       files.push(current)
       current = null
@@ -70,6 +76,10 @@ function main(): void {
   // Global line coverage.
   const totalFound = files.reduce((n, f) => n + f.linesFound, 0)
   const totalHit = files.reduce((n, f) => n + f.linesHit, 0)
+  if (totalFound === 0) {
+    // An empty or malformed lcov report must not false-pass as 100%.
+    failures.push("lcov report contains no line coverage data (LF total is 0)")
+  }
   const globalPct = pct(totalHit, totalFound)
   console.log(`coverage: global lines ${totalHit}/${totalFound} (${globalPct.toFixed(1)}%)`)
   if (globalPct < MIN_GLOBAL_LINE_PCT) {

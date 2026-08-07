@@ -37,9 +37,10 @@ If you are coming from 0.8 or earlier, review the
 [`CHANGELOG`](../CHANGELOG.md) entries for 0.9.0 and the current release. The
 headline changes:
 
-- **Reviewer decision schema v2** — decisions declare `scope_alignment` and
-  `evidence_completeness`. v1 decisions (fields absent) are never escalated,
-  so older models remain backward compatible.
+- **Reviewer decision schema v2** — decisions must carry `version: 2` and
+  declare `scope_alignment` and `evidence_completeness`. A model output that
+  omits the version is rejected and routed to manual review, so a model that
+  does not follow the v2 schema never produces an automatic decision.
 - **Layered configuration** — global, project, and inline options now merge
   with a safety trust boundary. See
   [Configuration layering](../README.md#all-configuration-options).

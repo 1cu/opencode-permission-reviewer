@@ -58,8 +58,9 @@ The first stable release. The public configuration schema, the audit schema
 - Reviewer decision schema v2: `version: 2` is now required, and decisions must
   declare `scope_alignment` and `evidence_completeness`. In enforce mode, new
   deterministic gates escalate allows with misaligned scope or insufficient
-  evidence. v1 decisions (fields absent) are never escalated, so older models
-  remain backward compatible.
+  evidence. A model output that omits `version: 2` is rejected and routed to
+  manual review, so a model that does not follow the v2 schema never produces an
+  automatic decision.
 - Audit schema v2: every record now carries `schemaVersion: 2`, `decisionSource`,
   an `actionHash` for cross-record correlation, per-phase timings, the reviewer
   model, evidence completeness, scope alignment, and actor

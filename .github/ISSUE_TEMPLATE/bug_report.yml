@@ -13,6 +13,12 @@ body:
         [private vulnerability reporting](https://github.com/Warc0s/opencode-permission-reviewer/security/advisories/new)
         instead.
 
+        **Never paste secrets into any field.** Redact API keys, tokens,
+        passwords, private keys, personal filesystem paths, and real hostnames
+        from command examples, config snippets, `doctor` output, and audit
+        records before submitting. Remote commands in the audit trail are
+        already stored as SHA-256 and are safe to share.
+
   - type: textarea
     id: summary
     attributes:
