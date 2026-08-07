@@ -181,9 +181,12 @@ export class ReviewCoordinator {
     if (this.reviewerSessions.has(request.sessionID)) {
       const reason = "Automatic reviewer sessions may not request additional permissions."
       const decision: ReviewDecision = {
+        version: 2,
         outcome: "deny",
         risk_level: "critical",
         user_authorization: "unknown",
+        scope_alignment: "unknown",
+        evidence_completeness: "unknown",
         rationale: reason,
         confidence: 1,
       }
@@ -195,9 +198,12 @@ export class ReviewCoordinator {
     const brake = emergencyBrakeReason(request)
     if (brake) {
       const decision: ReviewDecision = {
+        version: 2,
         outcome: "deny",
         risk_level: "critical",
         user_authorization: "unknown",
+        scope_alignment: "unknown",
+        evidence_completeness: "unknown",
         rationale: brake,
         confidence: 1,
       }
@@ -209,9 +215,12 @@ export class ReviewCoordinator {
     const envelope = await this.collectEnvelope(request)
     if (envelope.preflightDenial) {
       const decision: ReviewDecision = {
+        version: 2,
         outcome: "deny",
         risk_level: "high",
         user_authorization: "unknown",
+        scope_alignment: "unknown",
+        evidence_completeness: "unknown",
         rationale: envelope.preflightDenial,
         confidence: 1,
       }
@@ -232,6 +241,7 @@ export class ReviewCoordinator {
       this.config.policyRules,
     )
     this.policyTraceByRequest.set(request.id, policyTrace)
+    envelope.policyTrace = policyTrace
     if (this.config.enforcementMode === "enforce") {
       if (policyTrace.finalRoute === "manual") {
         const reason = `Declarative policy route: manual. ${policyTrace.matchedRules.map((m) => m.reason).join("; ")}`
@@ -240,9 +250,12 @@ export class ReviewCoordinator {
       if (policyTrace.finalRoute === "deny") {
         const reason = `Declarative policy route: deny. ${policyTrace.matchedRules.map((m) => m.reason).join("; ")}`
         const decision: ReviewDecision = {
+          version: 2,
           outcome: "deny",
           risk_level: "high",
           user_authorization: "unknown",
+          scope_alignment: "unknown",
+          evidence_completeness: "unknown",
           rationale: reason,
           confidence: 1,
         }

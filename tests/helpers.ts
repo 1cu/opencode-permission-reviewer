@@ -14,6 +14,7 @@ export function decision(
   overrides: Partial<ReviewDecision> = {},
 ): ReviewDecision {
   return {
+    version: 2,
     outcome,
     risk_level: outcome === "deny" ? "high" : "low",
     user_authorization: outcome === "allow" ? "high" : "low",

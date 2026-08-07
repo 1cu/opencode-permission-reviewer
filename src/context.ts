@@ -4,6 +4,7 @@ import type {
   IntentBlock,
   MessageWithParts,
   PermissionRequest,
+  PolicyTrace,
   Provenanced,
   ReviewEnvelope,
   ReviewerConfig,
@@ -149,6 +150,7 @@ export function buildIntentHistory(messages: MessageWithParts[], config: Reviewe
 export function buildEvidence(envelope: ReviewEnvelope, config: ReviewerConfig): string {
   const request: PermissionRequest = envelope.request
   const evidence = [
+    renderPolicySummary(envelope.policyTrace, config.maxPartChars * 2),
     `WORKING_DIRECTORY\n${envelope.directory}`,
     `WORKTREE\n${envelope.worktree}`,
     // Actor/lineage/intent sections precede PENDING_PERMISSION so the reviewer
@@ -164,6 +166,10 @@ export function buildEvidence(envelope: ReviewEnvelope, config: ReviewerConfig):
       config.maxPartChars * 2,
     )}`,
     envelope.enrichment || "ACTION_ENRICHMENT\n<none />",
+    `REPOSITORY_CONTEXT\n${stableJson(
+      { trust: config.repositoryTrust, directory: envelope.directory, worktree: envelope.worktree },
+      config.maxPartChars * 2,
+    )}`,
     `USER_INTENT_HISTORY\n${envelope.intentHistory || "<no user intent history available />"}`,
     `RECENT_TRANSCRIPT\n${envelope.transcript || "<no transcript available />"}`,
   ].join("\n\n")
@@ -174,6 +180,21 @@ export function buildEvidence(envelope: ReviewEnvelope, config: ReviewerConfig):
       config.maxEnrichmentChars +
       config.maxIntentChars,
   )
+}
+
+// --- policy summary section -------------------------------------------------
+
+function renderPolicySummary(trace: PolicyTrace | undefined, max: number): string {
+  if (trace === undefined) return "EFFECTIVE_POLICY_SUMMARY\n<no policy evaluation available />"
+  return `EFFECTIVE_POLICY_SUMMARY\n${stableJson(
+    {
+      hash: trace.effectivePolicyHash,
+      route: trace.finalRoute,
+      mode: trace.mode,
+      matches: trace.matchedRules.map((m) => ({ id: m.id, effect: m.effect, reason: m.reason })),
+    },
+    max,
+  )}`
 }
 
 // --- actor/lineage/intent prompt sections -----------------------------------
@@ -295,6 +316,7 @@ export function actorEvidenceSections(envelope: ReviewEnvelope, config: Reviewer
     `SESSION_LINEAGE\n${renderLineage(lineage, cap)}`,
     `DIRECT_USER_INTENT\n${renderIntentBlocks(intent.directUserIntent, cap)}`,
     `DELEGATED_TASK\n${renderIntentBlocks(intent.delegatedTask, cap)}`,
+    `LOCAL_SESSION_CONTEXT\n${renderIntentBlocks(intent.localSessionIntent, cap)}`,
   ]
   if (envelope.capability !== undefined) {
     sections.push(`CAPABILITY_ASSESSMENT\n${renderCapability(envelope.capability, cap)}`)

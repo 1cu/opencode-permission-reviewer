@@ -221,7 +221,7 @@ describe("characterization gaps (baseline prereq)", () => {
     expect(audits).toHaveLength(1)
     expect(audits[0]!.schemaVersion).toBe(1)
     expect(audits[0]!.decisionSchemaVersion).toBe(2)
-    expect(audits[0]!.promptVersion).toBe("1.0.0")
+    expect(audits[0]!.promptVersion).toBe("2.0.0")
   })
 })
 

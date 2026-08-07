@@ -209,16 +209,22 @@ describe("schema v2 fields", () => {
     expect(parsed?.evidence_completeness).toBe("insufficient")
   })
 
-  test("parseDecision defaults v2 fields to unknown when absent (v1 backward-compat)", () => {
+  test("parseDecision rejects a decision without a version field", () => {
     const parsed = parseDecision({
       outcome: "allow",
       risk_level: "low",
       user_authorization: "high",
       rationale: "safe",
       confidence: 0.9,
+      scope_alignment: "aligned",
+      evidence_completeness: "sufficient",
     })
-    expect(parsed?.scope_alignment).toBe("unknown")
-    expect(parsed?.evidence_completeness).toBe("unknown")
+    expect(parsed).toBeUndefined()
+  })
+
+  test("parseDecision rejects a decision with the wrong version", () => {
+    expect(parseDecision({ ...decision("allow"), version: 1 })).toBeUndefined()
+    expect(parseDecision({ ...decision("allow"), version: 3 })).toBeUndefined()
   })
 
   test("parseDecision rejects invalid scope_alignment values", () => {
@@ -229,8 +235,22 @@ describe("schema v2 fields", () => {
     expect(parseDecision({ ...decision("allow"), evidence_completeness: "great" })).toBeUndefined()
   })
 
-  test("asymmetric: scope_alignment present, evidence_completeness absent", () => {
+  test("parseDecision rejects a v2 decision missing scope_alignment", () => {
     const parsed = parseDecision({
+      version: 2,
+      outcome: "allow",
+      risk_level: "low",
+      user_authorization: "high",
+      rationale: "safe",
+      confidence: 0.9,
+      evidence_completeness: "sufficient",
+    })
+    expect(parsed).toBeUndefined()
+  })
+
+  test("parseDecision rejects a v2 decision missing evidence_completeness", () => {
+    const parsed = parseDecision({
+      version: 2,
       outcome: "allow",
       risk_level: "low",
       user_authorization: "high",
@@ -238,30 +258,20 @@ describe("schema v2 fields", () => {
       confidence: 0.9,
       scope_alignment: "aligned",
     })
-    expect(parsed?.scope_alignment).toBe("aligned")
-    expect(parsed?.evidence_completeness).toBe("unknown")
-  })
-
-  test("asymmetric: evidence_completeness present, scope_alignment absent", () => {
-    const parsed = parseDecision({
-      outcome: "allow",
-      risk_level: "low",
-      user_authorization: "high",
-      rationale: "safe",
-      confidence: 0.9,
-      evidence_completeness: "insufficient",
-    })
-    expect(parsed?.scope_alignment).toBe("unknown")
-    expect(parsed?.evidence_completeness).toBe("insufficient")
+    expect(parsed).toBeUndefined()
   })
 
   test("DECISION_SCHEMA rejects unknown fields (additionalProperties: false)", () => {
     expect(DECISION_SCHEMA.additionalProperties).toBe(false)
   })
 
-  test("DECISION_SCHEMA includes the v2 properties", () => {
+  test("DECISION_SCHEMA requires the version and v2 properties", () => {
+    expect(DECISION_SCHEMA.properties).toHaveProperty("version")
     expect(DECISION_SCHEMA.properties).toHaveProperty("scope_alignment")
     expect(DECISION_SCHEMA.properties).toHaveProperty("evidence_completeness")
+    expect(DECISION_SCHEMA.required).toContain("version")
+    expect(DECISION_SCHEMA.required).toContain("scope_alignment")
+    expect(DECISION_SCHEMA.required).toContain("evidence_completeness")
   })
 
   test("misaligned scope escalates an allow", () => {
@@ -304,15 +314,19 @@ describe("schema v2 fields", () => {
     expect(result.kind).toBe("allow")
   })
 
-  test("v1 decision (fields absent) is never escalated by the v2 gates", () => {
-    const v1 = {
-      outcome: "allow" as const,
-      risk_level: "medium" as const,
-      user_authorization: "high" as const,
-      rationale: "safe enough",
-      confidence: 0.9,
-    }
-    const result = enforceDecision(v1, DEFAULT_CONFIG)
+  test("a v2 decision with unknown scope/evidence is never escalated by the v2 gates", () => {
+    // The closest equivalent to a legacy decision: a valid v2 record whose
+    // scope/evidence the reviewer could not determine. The v2 gates only fire
+    // on "misaligned" / "insufficient", so "unknown" must still pass.
+    const result = enforceDecision(
+      decision("allow", {
+        risk_level: "medium",
+        user_authorization: "high",
+        scope_alignment: "unknown",
+        evidence_completeness: "unknown",
+      }),
+      DEFAULT_CONFIG,
+    )
     expect(result.kind).toBe("allow")
   })
 

@@ -18,6 +18,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function parseDecision(value: unknown): ReviewDecision | undefined {
   if (!isRecord(value)) return
+  // The current schema is version 2. A model output that omits the version
+  // (or carries a different one) is rejected outright and routed to a human;
+  // it never silently degrades to a guessed decision.
+  if (value.version !== DECISION_SCHEMA_VERSION) return
   if (typeof value.outcome !== "string" || !OUTCOMES.has(value.outcome)) return
   if (typeof value.risk_level !== "string" || !RISKS.has(value.risk_level)) return
   if (typeof value.user_authorization !== "string" || !AUTHORIZATIONS.has(value.user_authorization))
@@ -27,35 +31,23 @@ export function parseDecision(value: unknown): ReviewDecision | undefined {
   if (rationale.length < 3 || rationale.length > 2_000) return
   if (typeof value.confidence !== "number" || !Number.isFinite(value.confidence)) return
   if (value.confidence < 0 || value.confidence > 1) return
-
-  // Schema v2 fields: validated when present, defaulted to "unknown" when absent
-  // so a v1 decision (without these fields) still parses cleanly. An invalid
-  // value (present but not in the enum) rejects the whole decision — the model
-  // isn't following the schema and we escalate rather than silently default.
-  let scope_alignment: ScopeAlignment = "unknown"
-  if (value.scope_alignment !== undefined) {
-    if (typeof value.scope_alignment !== "string" || !SCOPE_ALIGNMENTS.has(value.scope_alignment))
-      return
-    scope_alignment = value.scope_alignment as ScopeAlignment
-  }
-  let evidence_completeness: EvidenceSufficiency = "unknown"
-  if (value.evidence_completeness !== undefined) {
-    if (
-      typeof value.evidence_completeness !== "string" ||
-      !EVIDENCE_SUFFICIENCY.has(value.evidence_completeness)
-    )
-      return
-    evidence_completeness = value.evidence_completeness as EvidenceSufficiency
-  }
+  if (typeof value.scope_alignment !== "string" || !SCOPE_ALIGNMENTS.has(value.scope_alignment))
+    return
+  if (
+    typeof value.evidence_completeness !== "string" ||
+    !EVIDENCE_SUFFICIENCY.has(value.evidence_completeness)
+  )
+    return
 
   return {
+    version: DECISION_SCHEMA_VERSION,
     outcome: value.outcome as ReviewDecision["outcome"],
     risk_level: value.risk_level as ReviewDecision["risk_level"],
     user_authorization: value.user_authorization as ReviewDecision["user_authorization"],
     rationale,
     confidence: value.confidence,
-    scope_alignment,
-    evidence_completeness,
+    scope_alignment: value.scope_alignment as ScopeAlignment,
+    evidence_completeness: value.evidence_completeness as EvidenceSufficiency,
   }
 }
 
@@ -81,8 +73,8 @@ export function enforceDecision(
 
   // Deterministic risk×authorization gate, now driven by the configurable
   // riskPolicy matrix. This only ever RESTRICTS an `allow`: the model's
-  //deny`/`escalate` outcomes are always preserved. The default matrix
-  // es the previous hard-coded behavior exactly.
+  // `deny`/`escalate` outcomes are always preserved. The default matrix
+  // reproduces the previous hard-coded behavior exactly.
   if (decision.outcome === "allow") {
     const { risk_level: risk, user_authorization: auth } = decision
     const permitted = config.riskPolicy.allow[risk]
@@ -131,8 +123,22 @@ export const DECISION_SCHEMA_VERSION = 2
 export const DECISION_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["outcome", "risk_level", "user_authorization", "rationale", "confidence"],
+  required: [
+    "version",
+    "outcome",
+    "risk_level",
+    "user_authorization",
+    "scope_alignment",
+    "evidence_completeness",
+    "rationale",
+    "confidence",
+  ],
   properties: {
+    version: {
+      type: "number",
+      enum: [DECISION_SCHEMA_VERSION],
+      description: "Structured-decision schema version. Must be exactly 2.",
+    },
     outcome: {
       type: "string",
       enum: ["allow", "deny", "escalate"],

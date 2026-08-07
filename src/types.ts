@@ -5,17 +5,17 @@ export type ScopeAlignment = "aligned" | "partial" | "misaligned" | "unknown"
 export type EvidenceSufficiency = "sufficient" | "partial" | "insufficient" | "unknown"
 
 export interface ReviewDecision {
+  /** Structured-decision schema version. Always 2 for the current schema. */
+  version: 2
   outcome: ReviewOutcome
   risk_level: RiskLevel
   user_authorization: UserAuthorization
+  /** How well the request aligns with the recovered user/delegated intent. */
+  scope_alignment: ScopeAlignment
+  /** Whether the evidence was sufficient to decide confidently. */
+  evidence_completeness: EvidenceSufficiency
   rationale: string
   confidence: number
-  /** How well the request aligns with the recovered user/delegated intent.
-   *  Optional: absent on v1 decisions (treated as "unknown" by the gates). */
-  scope_alignment?: ScopeAlignment
-  /** Whether the evidence was sufficient to decide confidently.
-   *  Optional: absent on v1 decisions (treated as "unknown" by the gates). */
-  evidence_completeness?: EvidenceSufficiency
 }
 
 export interface PermissionToolSource {
@@ -160,6 +160,9 @@ export interface ReviewEnvelope {
   /** Structured capability facts derived from the bash command. Observe-only:
    *  feeds the reviewer prompt and audit, never enforcement. */
   capability?: CapabilityAssessment
+  /** The policy trace produced for this request, surfaced to the reviewer prompt
+   *  as EFFECTIVE_POLICY_SUMMARY and to audit. Observe-only. */
+  policyTrace?: PolicyTrace
   /** The parsed command reused across evidence providers. */
   parsedCommand?: ParsedCommand
 }
