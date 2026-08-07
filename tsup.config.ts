@@ -15,7 +15,13 @@ export default defineConfig({
   splitting: false,
   clean: true,
   sourcemap: false,
-  dts: true,
+  dts: {
+    compilerOptions: {
+      // tsup injects `baseUrl: "."` when unset; TypeScript 6 deprecates
+      // baseUrl (error TS5101), so silence it via the same opt-out.
+      ignoreDeprecations: "6.0",
+    },
+  },
   external: [
     "@opencode-ai/plugin",
     "@opencode-ai/plugin/tui",
