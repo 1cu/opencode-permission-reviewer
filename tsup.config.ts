@@ -1,13 +1,8 @@
 import { defineConfig } from "tsup"
 
-// Build gate for the 0.6 architecture boundary. Produces dist/ as ESM so the
-// bundle can be loaded directly by path; OpenCode-provided packages (plugin
-// SDK, TUI runtime, Solid) stay external because the host resolves them.
-//
-// Note: the package still ships `main`/`exports` pointing at `src/` during the
-// prerelease cycle. Switching the entry map to `dist/` is a packaging decision
-// deferred to 0.9.0; for 0.6.0 `build` is a CI gate that proves the source
-// bundles cleanly.
+// dist/ is the ship set: ESM bundles that load directly by path. OpenCode-
+// provided packages (plugin SDK, TUI runtime, Solid) stay external because the
+// host resolves them from its own node_modules; only the built output ships.
 export default defineConfig({
   entry: {
     index: "src/index.ts",

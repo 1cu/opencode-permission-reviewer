@@ -1,22 +1,38 @@
 {
   "name": "opencode-permission-reviewer",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Policy-aware permission reviewer for OpenCode V1",
   "type": "module",
-  "private": true,
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./server": "./src/index.ts",
-    "./tui": "./src/tui.tsx"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./tui": {
+      "types": "./dist/tui.d.ts",
+      "import": "./dist/tui.js",
+      "default": "./dist/tui.js"
+    },
+    "./cli": {
+      "types": "./dist/explain.d.ts",
+      "import": "./dist/explain.js",
+      "default": "./dist/explain.js"
+    },
+    "./package.json": "./package.json"
   },
   "bin": {
     "opencode-permission-reviewer": "./dist/explain.js"
   },
   "files": [
     "dist/",
-    "src/",
     "README.md",
     "NOTICE",
     "LICENSE",
@@ -65,6 +81,7 @@
     "typescript-eslint": "^8.0.0"
   },
   "scripts": {
+    "prepare": "bun run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings=0",
@@ -72,6 +89,7 @@
     "build": "tsup",
     "test": "bun test",
     "test:stress": "bun test tests/stress.test.ts --timeout 30000",
+    "test:package": "bun test tests/package-smoke.test.ts --timeout 120000",
     "check": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build"
   },
   "dependencies": {
