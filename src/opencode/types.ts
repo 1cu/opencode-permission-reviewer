@@ -1,4 +1,5 @@
 import type { ReviewAuditRecord } from "../types.ts"
+import type { OpenCodeCapabilities } from "./adapter.ts"
 import type { ReviewUiStatus } from "../ui-protocol.ts"
 
 export interface ClientResponse<T> {
@@ -23,6 +24,9 @@ export interface OpenCodeClientLike {
 
 export interface RuntimeContext {
   client: OpenCodeClientLike
+  /** What the plugin learned about the host client at startup (probe result).
+   *  Surfaced to diagnostics and available to any future adapter consumer. */
+  capabilities: OpenCodeCapabilities
   permissionReply(options: unknown): Promise<ClientResponse<unknown>>
   publishUiStatus?(status: ReviewUiStatus): Promise<ClientResponse<unknown>>
   writeAudit?(record: ReviewAuditRecord): Promise<void>

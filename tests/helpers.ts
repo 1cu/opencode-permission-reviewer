@@ -1,6 +1,7 @@
 import { DEFAULT_CONFIG } from "../src/config.ts"
 import type { OpenCodeClientLike, RuntimeContext } from "../src/runtime.ts"
 import { ApprovalReviewerRuntime } from "../src/runtime.ts"
+import { probeCapabilities } from "../src/opencode/capability-detection.ts"
 import type {
   PermissionRequest,
   ReviewAuditRecord,
@@ -141,6 +142,7 @@ export function runtime(
   const auditRecords: ReviewAuditRecord[] = []
   const ctx: RuntimeContext = {
     client,
+    capabilities: probeCapabilities(client),
     permissionReply: client.permissionReply,
     publishUiStatus: client.publishUiStatus,
     writeAudit: async (record) => {

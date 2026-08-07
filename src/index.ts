@@ -15,11 +15,14 @@ export const server: Plugin = async (input, options) => {
     : undefined
   const writeAudit = createAuditWriter(config, logger)
   const ctx: RuntimeContext = {
-    ...createV1Adapter({
-      client: input.client,
-      directory: input.directory,
-      worktree: input.worktree,
-    }),
+    ...createV1Adapter(
+      {
+        client: input.client,
+        directory: input.directory,
+        worktree: input.worktree,
+      },
+      logger,
+    ),
     ...(writeAudit === undefined ? {} : { writeAudit }),
   }
   const runtime = new ApprovalReviewerRuntime(ctx, config, logger)
