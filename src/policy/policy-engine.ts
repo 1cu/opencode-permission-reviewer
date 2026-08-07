@@ -87,7 +87,7 @@ export function evaluatePolicy(
 }
 
 /** Project-sourced allow rules are rejected: project config cannot relax safety. */
-function filterProjectAllowRules(rules: PolicyRule[]): PolicyRule[] {
+export function filterProjectAllowRules(rules: PolicyRule[]): PolicyRule[] {
   return rules.filter((r) => !(r.source === "project" && r.effect === "allow"))
 }
 
@@ -129,8 +129,10 @@ function matches(
   return true
 }
 
-/** Deterministic hash of the rule set for audit reproducibility. */
-function hashRuleSet(rules: PolicyRule[]): string {
+/** Deterministic hash of the rule set for audit reproducibility. The engine
+ *  uses this for the policy trace; exposing it lets diagnostics print the exact
+ *  same hash a review would produce. */
+export function hashRuleSet(rules: PolicyRule[]): string {
   const canonical = rules
     .map((r) => `${r.id}:${r.effect}:${JSON.stringify(r.when)}`)
     .sort()
