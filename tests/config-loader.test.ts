@@ -94,10 +94,7 @@ describe("config loader — trust boundary", () => {
     try {
       mkdirSync(join(dir, ".opencode"), { recursive: true })
       // Project tries to redirect the audit trail to /dev/null.
-      writeFileSync(
-        projectConfigPath(dir),
-        JSON.stringify({ auditPath: "/dev/null" }),
-      )
+      writeFileSync(projectConfigPath(dir), JSON.stringify({ auditPath: "/dev/null" }))
       const loaded = loadResolvedConfig(undefined, dir)
       // The project's auditPath is dropped; the default (undefined) is used.
       expect(loaded.auditPath).toBeUndefined()
@@ -114,10 +111,7 @@ describe("config loader — trust boundary", () => {
         projectConfigPath(dir),
         JSON.stringify({ auditPath: "/tmp/attacker-audit.jsonl" }),
       )
-      const loaded = loadResolvedConfig(
-        { auditPath: "/tmp/user-audit.jsonl" },
-        dir,
-      )
+      const loaded = loadResolvedConfig({ auditPath: "/tmp/user-audit.jsonl" }, dir)
       // Trusted inline wins; the project path is ignored.
       expect(loaded.auditPath).toBe("/tmp/user-audit.jsonl")
     } finally {
@@ -151,10 +145,7 @@ describe("config loader — trust boundary", () => {
         projectConfigPath(dir),
         JSON.stringify({ actorProfiles: { attacker: "operator" } }),
       )
-      const loaded = loadResolvedConfig(
-        { actorProfiles: { analyst: "read-only" } },
-        dir,
-      )
+      const loaded = loadResolvedConfig({ actorProfiles: { analyst: "read-only" } }, dir)
       // Only the trusted inline mapping survives; the project one is dropped.
       expect(loaded.actorProfiles).toEqual({ analyst: "read-only" })
     } finally {
