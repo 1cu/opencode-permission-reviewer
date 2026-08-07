@@ -7,11 +7,18 @@ on:
 
 jobs:
   check:
+    name: check (bun ${{ matrix.bun }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Minimum supported Bun (matches engines.bun >=1.3.0) and the pinned
+        # current version. A drift in either direction surfaces before main.
+        bun: ["1.3.0", "1.3.5"]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.5"
+          bun-version: ${{ matrix.bun }}
       - run: bun install --frozen-lockfile
       - run: bun run check
