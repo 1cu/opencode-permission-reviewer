@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, readdirSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -9,22 +9,29 @@ const CWD = import.meta.dir + "/.."
 // inspect it with tar. This avoids depending on npm's stdout formatting (which
 // emits non-JSON banners/notices in some environments) and validates what would
 // actually be published. Nothing is uploaded.
+//
+// Pack lazily inside the tests rather than in beforeAll: npm pack + prepare can
+// exceed the default hook timeout on slow runners, and not every supported Bun
+// release accepts a timeout option on beforeAll. Per-test timeouts (third arg)
+// are the portable path.
 let tmpDir: string | undefined
 let tgzPath: string | undefined
 
-beforeAll(async () => {
+function packOnce(): string {
+  if (tgzPath !== undefined) return tgzPath
   tmpDir = mkdtempSync(join(tmpdir(), "reviewer-pkg-"))
-  const pack = Bun.spawn({
+  const pack = Bun.spawnSync({
     cmd: ["npm", "pack", "--pack-destination", tmpDir],
     cwd: CWD,
     stdout: "ignore",
     stderr: "pipe",
   })
-  expect(await pack.exited).toBe(0)
+  expect(pack.exitCode).toBe(0)
   const name = readdirSync(tmpDir).find((f) => f.endsWith(".tgz"))
   expect(name).toBeTruthy()
   tgzPath = join(tmpDir, name!)
-}, 120_000)
+  return tgzPath
+}
 
 afterAll(() => {
   if (tmpDir !== undefined) rmSync(tmpDir, { recursive: true, force: true })
@@ -54,7 +61,7 @@ async function readFromTarball(path: string, member: string): Promise<string> {
 
 describe("npm pack ship set", () => {
   test("the tarball contains the dist bundle and docs, nothing else", async () => {
-    const files = await listTarball(tgzPath!)
+    const files = await listTarball(packOnce())
 
     for (const required of [
       "package.json",
@@ -95,10 +102,10 @@ describe("npm pack ship set", () => {
         f.endsWith("-plan.md"),
     )
     expect(forbidden).toEqual([])
-  }, 30_000)
+  }, 120_000)
 
   test("the packaged package.json is public and points at dist", async () => {
-    const pkg = JSON.parse(await readFromTarball(tgzPath!, "package.json")) as Record<
+    const pkg = JSON.parse(await readFromTarball(packOnce(), "package.json")) as Record<
       string,
       unknown
     >
@@ -108,5 +115,5 @@ describe("npm pack ship set", () => {
     const exports = pkg.exports as Record<string, Record<string, string>>
     expect(exports?.["."]?.import).toBe("./dist/index.js")
     expect(exports?.["./tui"]?.import).toBe("./dist/tui.js")
-  }, 30_000)
+  }, 120_000)
 })
