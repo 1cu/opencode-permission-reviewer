@@ -53,13 +53,14 @@ function approvedNote(decisions: ApprovedAnnotation[]): string {
 }
 
 /** Stable hash of the canonical request so audit records for the same action
- *  correlate across runs. Patterns are sorted so event order does not matter. */
+ *  correlate across runs. Patterns are sorted so event order does not matter.
+ *  The per-invocation tool call/message IDs are deliberately excluded: two
+ *  identical commands in different sessions or runs must produce the same hash. */
 function actionHash(request: PermissionRequest): string {
   const canonical = JSON.stringify({
     permission: request.permission,
     patterns: [...request.patterns].sort(),
     metadata: request.metadata,
-    tool: request.tool,
   })
   return createHash("sha256").update(canonical).digest("hex")
 }

@@ -21,11 +21,16 @@ import { loadResolvedConfig, globalConfigPath, projectConfigPath } from "../conf
 import { parseCommand } from "../capability/command-parser.ts"
 import { analyzeCapability } from "../capability/bash-analyzer.ts"
 import { evaluatePolicy, filterProjectAllowRules, hashRuleSet } from "../policy/policy-engine.ts"
-import { resolveAuditPath, readAuditSummary, type AuditSummary } from "../audit.ts"
+import { expandHome, resolveAuditPath, readAuditSummary, type AuditSummary } from "../audit.ts"
 import type { PermissionRequest, PermissionToolSource, ReviewerConfig } from "../types.ts"
 
-const code = await runCli(process.argv.slice(2))
-process.exit(code)
+// Guarded so importing the module (e.g. via the "./cli" export or in tests)
+// never triggers the CLI or kills the importing process; only a direct
+// `bun run`/bin invocation runs the dispatcher.
+if (import.meta.main) {
+  const code = await runCli(process.argv.slice(2))
+  process.exit(code)
+}
 
 // --- dispatcher --------------------------------------------------------------
 
@@ -253,7 +258,7 @@ async function runAudit(argv: string[]): Promise<number> {
   }
   const directory = values.project ?? process.cwd()
   const config = loadResolvedConfig(undefined, directory)
-  const auditPath = values.path ?? resolveAuditPath(config)
+  const auditPath = values.path ? expandHome(values.path) : resolveAuditPath(config)
   const summary = readAuditSummary(auditPath)
   if (!summary.exists) {
     console.error(`audit report: ${auditPath}: no such file`)
@@ -356,7 +361,9 @@ function fmtCounts(map: Record<string, number>): string {
 async function checkWritable(path: string): Promise<{ ok: boolean; error?: string }> {
   try {
     await mkdir(dirname(path), { recursive: true })
-    const fh = await open(path, "a")
+    // Match the writer's 0600 mode so a doctor probe never leaves a
+    // world-readable audit trail behind.
+    const fh = await open(path, "a", 0o600)
     await fh.close()
     return { ok: true }
   } catch (error) {
