@@ -74,7 +74,11 @@ export class ReviewUiState {
     sessionID: string,
     parentOf: (sessionID: string) => string | undefined,
   ): ReviewUiStatus | undefined {
-    return this.all().find((status) => {
+    // Manual entries only drive toasts; they must not occupy the panel slot or
+    // they hide later reviews. Prefer an in-flight review over a terminal
+    // result, and within each class pick the newest request.
+    const matches = this.all().filter((status) => {
+      if (status.phase === "manual") return false
       if (status.sessionID === sessionID) return true
       let current = parentOf(status.sessionID)
       const visited = new Set<string>()
@@ -85,6 +89,18 @@ export class ReviewUiState {
       }
       return false
     })
+    if (matches.length === 0) return undefined
+    const rank = (phase: ReviewUiStatus["phase"]): number => {
+      if (phase === "reviewing") return 2
+      if (phase === "approved" || phase === "denied") return 1
+      return 0
+    }
+    return matches.sort(
+      (left, right) =>
+        rank(right.phase) - rank(left.phase) ||
+        right.emittedAt - left.emittedAt ||
+        right.requestID.localeCompare(left.requestID),
+    )[0]
   }
 
   expire(now = Date.now()): ReviewUiStatus[] {

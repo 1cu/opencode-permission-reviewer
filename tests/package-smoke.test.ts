@@ -71,16 +71,24 @@ describe("npm pack ship set", () => {
       "SECURITY.md",
       "dist/index.js",
       "dist/index.d.ts",
-      "dist/tui.js",
-      "dist/tui.d.ts",
       "dist/explain.js",
+      // TUI ships as raw TSX so the host compiles it with its Solid pipeline.
+      "dist/tui/tui.tsx",
+      "dist/tui/config.ts",
+      "dist/tui/ui-protocol.ts",
+      "dist/tui/ui-state.ts",
+      "dist/tui/types.ts",
+      "dist/tui/opencode/event-normalizer.ts",
     ]) {
       expect(files).toContain(required)
     }
 
-    // Exactly one shared types chunk (its hash suffix varies).
-    const dtsChunks = files.filter((f) => /^dist\/ui-state-[a-z0-9]+\.d\.ts$/i.test(f))
-    expect(dtsChunks.length).toBe(1)
+    // No prebundled TUI entry — that shape fails to render on the host.
+    // Guard the whole dist/tui/ tree: only raw .ts/.tsx sources may ship there.
+    const tuiFiles = files.filter((f) => f === "dist/tui" || f.startsWith("dist/tui/"))
+    expect(tuiFiles.length).toBeGreaterThan(0)
+    expect(tuiFiles.every((f) => f === "dist/tui" || /\.(ts|tsx)$/.test(f))).toBe(true)
+    expect(files.some((f) => f === "dist/tui.js" || /^dist\/tui\.js(\.|$)/.test(f))).toBe(false)
 
     // Nothing from src/, tests/, config, or gitignored/personal files may ship.
     const forbidden = files.filter(
@@ -112,8 +120,8 @@ describe("npm pack ship set", () => {
     expect(pkg.private).toBeUndefined()
     expect(pkg.main).toBe("./dist/index.js")
     expect(pkg.types).toBe("./dist/index.d.ts")
-    const exports = pkg.exports as Record<string, Record<string, string>>
-    expect(exports?.["."]?.import).toBe("./dist/index.js")
-    expect(exports?.["./tui"]?.import).toBe("./dist/tui.js")
+    const exports = pkg.exports as Record<string, unknown>
+    expect((exports?.["."] as Record<string, string> | undefined)?.import).toBe("./dist/index.js")
+    expect(exports?.["./tui"]).toBe("./dist/tui/tui.tsx")
   }, 120_000)
 })

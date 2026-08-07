@@ -21,7 +21,7 @@ interface TypedTuiPublish {
 
 type Logger = (message: string, details?: unknown) => void
 
-/** The reply shape the coordinator sends today (kept so its call sites stay
+/** The reply shape the coordinator sends (kept so its call sites stay
  *  unchanged while the reply logic itself is isolated in the transport). */
 interface ReplyOptions {
   path: { requestID: string }
@@ -46,8 +46,9 @@ export function createV1Adapter(input: V1ServerInput, logger?: Logger): RuntimeC
   }
   const capabilities: OpenCodeCapabilities = probeCapabilities(input.client)
   // The reply transport isolates the priority chain (public SDK reply with
-  // message > public reply + separate feedback > raw > refuse). It resolves to
-  // the raw path today; the structure lets a public path slot in unchanged.
+  // message > public reply + separate feedback > raw > refuse). With the v1
+  // host the chain resolves to the raw path; a public path slots in unchanged
+  // when the host exposes one.
   const replyTransport = createReplyTransport({
     raw: transport,
     capabilities,
@@ -58,7 +59,7 @@ export function createV1Adapter(input: V1ServerInput, logger?: Logger): RuntimeC
 
   // Permission reply is delegated to the isolated transport. The typed v1
   // method (postSessionIdPermissionsPermissionId) does not carry the feedback
-  // message, so the transport resolves to the raw path today.
+  // message, so the transport resolves to the raw path.
   const permissionReply: RuntimeContext["permissionReply"] = (request) => {
     const opts = request as ReplyOptions
     const flat: PermissionReplyInput = {
@@ -76,16 +77,16 @@ export function createV1Adapter(input: V1ServerInput, logger?: Logger): RuntimeC
   // called on the `tui` object (not extracted) because the SDK uses `this` to
   // reach its internal transport.
   const tui = (input.client as { tui?: { publish?: TypedTuiPublish } }).tui
-  const publishUiStatus: RuntimeContext["publishUiStatus"] = (status) => {
+  const publishUiStatus: RuntimeContext["publishUiStatus"] = async (status) => {
     const body = {
       type: "tui.command.execute",
       properties: { command: encodeUiStatus(status) },
     }
     if (tui !== undefined && typeof tui.publish === "function") {
-      return tui.publish({ body, query: { directory: input.directory } }) as Promise<{
+      return (await tui.publish({ body, query: { directory: input.directory } })) as {
         data?: unknown
         error?: unknown
-      }>
+      }
     }
     return transport.post({
       url: "/tui/publish",

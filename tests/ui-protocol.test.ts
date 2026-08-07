@@ -134,4 +134,25 @@ describe("TUI state machine", () => {
       state.activeFor("ses_other", (id) => (id === "ses_child" ? "ses_cycle" : "ses_child")),
     ).toBeUndefined()
   })
+
+  test("skips manual entries and prefers a newer reviewing request over a terminal result", () => {
+    const state = new ReviewUiState(options)
+    state.apply(
+      createUiStatus(request({ id: "per_old" }), "manual", {
+        ...options,
+        emittedAt: 1_000,
+        reason: "Low confidence",
+      }),
+    )
+    state.apply(
+      createUiStatus(request({ id: "per_done" }), "approved", {
+        ...options,
+        emittedAt: 2_000,
+        reason: "Safe",
+      }),
+    )
+    state.asked(request({ id: "per_new" }), 3_000)
+    expect(state.activeFor("ses_main", () => undefined)?.requestID).toBe("per_new")
+    expect(state.activeFor("ses_main", () => undefined)?.phase).toBe("reviewing")
+  })
 })

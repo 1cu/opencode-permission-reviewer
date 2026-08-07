@@ -1,7 +1,10 @@
 import type { ActorProfile, PermissionRequest, ReviewDecision } from "./types.ts"
 
 export const UI_COMMAND_PREFIX = "opencode-permission-reviewer.status."
-export const UI_START_GRACE_MS = 3_000
+// Time to wait for the server's first "reviewing" ack after permission.asked.
+// Short enough to surface a broken publish path, long enough to survive a busy
+// event bus without flipping the panel to "manual" before the review starts.
+export const UI_START_GRACE_MS = 15_000
 export const UI_WATCHDOG_GRACE_MS = 5_000
 
 export type ReviewUiPhase = "reviewing" | "approved" | "denied" | "manual"

@@ -18,11 +18,10 @@ export interface ReplyTransportDeps {
  * that can carry the feedback `message`, then a public reply plus a separate
  * feedback channel, then the authenticated raw transport, then refuse startup.
  *
- * In the OpenCode 1.18.x line the message-bearing reply is reachable ONLY via
- * the raw transport on a server plugin (the v1 client has no `permission.reply`
- * and the v2 client is not handed to server plugins yet), so the chain resolves
- * to raw today. The structure lets a public path slot in unchanged when a host
- * exposes one.
+ * On the supported v1 host the message-bearing reply is reachable only via the
+ * raw transport on a server plugin (the typed v1 permission method has no
+ * feedback `message` field), so the chain resolves to raw. The structure lets a
+ * public path slot in unchanged when a host exposes one.
  */
 export function createReplyTransport(deps: ReplyTransportDeps): ReplyTransport {
   const useRaw = deps.capabilities.rawAuthenticatedTransport && deps.raw !== undefined

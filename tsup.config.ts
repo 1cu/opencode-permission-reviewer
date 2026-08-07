@@ -1,12 +1,11 @@
 import { defineConfig } from "tsup"
 
-// dist/ is the ship set: ESM bundles that load directly by path. OpenCode-
-// provided packages (plugin SDK, TUI runtime, Solid) stay external because the
-// host resolves them from its own node_modules; only the built output ships.
+// dist/ is the ship set for the server and CLI. The TUI entry is copied as raw
+// TSX by scripts/copy-tui.ts so OpenCode's host can compile it with its own
+// Solid/OpenTUI pipeline (a prebundled TUI does not render on the host).
 export default defineConfig({
   entry: {
     index: "src/index.ts",
-    tui: "src/tui.tsx",
     explain: "src/cli/explain.ts",
   },
   format: ["esm"],
@@ -25,11 +24,4 @@ export default defineConfig({
     "solid-js",
     "solid-js/web",
   ],
-  esbuildOptions(options) {
-    // The TUI uses Solid's automatic JSX runtime. The per-file jsxImportSource
-    // pragma is absent today (the project relies on tsconfig), so set it here
-    // explicitly for the bundle. The server entry has no JSX and is unaffected.
-    options.jsx = "automatic"
-    options.jsxImportSource = "@opentui/solid"
-  },
 })

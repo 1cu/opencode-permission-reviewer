@@ -44,8 +44,8 @@ fails safe to manual review.
 
 ### Requirements
 
-- [Bun](https://bun.sh) ≥ 1.3.0
-- [OpenCode](https://opencode.ai) ≥ 1.18.11 (**tested with 1.18.13**)
+- [Bun](https://bun.sh) ≥ 1.3.0 (CI runs 1.3.0 and 1.3.5)
+- [OpenCode](https://opencode.ai) ≥ 1.18.11 and **&lt; 2** (**tested with 1.18.15**)
 - `git` on `PATH` (only used for read-only Git-state enrichment; missing git
   degrades gracefully)
 - A model provider configured in OpenCode, exposing a model that follows JSON
@@ -53,22 +53,45 @@ fails safe to manual review.
 - A permission policy with at least one `ask` rule — **if nothing is `ask`, the
   plugin never activates** (everything is already `allow`/`deny`).
 
+See [Supported versions](#supported-versions) for the full matrix.
+
 ### Install
 
-The plugin is **installed by path**, not from npm. Clone it and install its
-dependencies (the TUI half needs `node_modules` to load):
+The package is published to **npm**. Install it as a dependency, or clone and
+build when you want to run from a checkout:
 
 ```bash
+# From npm
+bun add opencode-permission-reviewer   # or: npm install opencode-permission-reviewer
+
+# From a checkout (development)
 git clone https://github.com/Warc0s/opencode-permission-reviewer.git
 cd opencode-permission-reviewer
-bun install
+bun install && bun run build
+```
+
+What ships in `dist/`:
+
+- **Server** — `main` / `./server` → `dist/index.js` (bundled).
+- **TUI overlay** — `./tui` → `dist/tui/tui.tsx` (**raw TSX**, not a JS bundle).
+  OpenCode's host compiles that entry with its own Solid/OpenTUI pipeline and
+  rewrites `solid-js` / `@opentui/*` onto the host runtime. A prebundled
+  `dist/tui.js` loads but **never paints** the overlay.
+- **CLI** — `./cli` / `bin` → `dist/explain.js`.
+
+The CLI can register the plugin for you (`--tui` also writes `tui.json`;
+`--npm` emits an npm package name instead of a path; it never clobbers an
+existing entry):
+
+```bash
+bunx opencode-permission-reviewer init --npm --tui --yes
 ```
 
 ### Configure
 
 Register the plugin in your `opencode.json` (project or
-`~/.config/opencode/opencode.json`), pointing at the **absolute path** of the
-checkout, and optionally override the reviewer `model`:
+`~/.config/opencode/opencode.json`). Use an absolute path to a checkout, or the
+npm package name after `bun add` / `npm install`:
 
 ```jsonc
 // opencode.json
@@ -77,6 +100,7 @@ checkout, and optionally override the reviewer `model`:
   "plugin": [
     [
       "/absolute/path/to/opencode-permission-reviewer",
+      // or: "opencode-permission-reviewer"
       {
         "model": "openai/gpt-5.6-luna", // default reviewer; override with any provider/model
         "variant": "max",
@@ -107,9 +131,12 @@ For the optional TUI overlay, register the **same** plugin block in your
 }
 ```
 
-Restart OpenCode, then ask the agent to run something safe, e.g.
-`printf hello`. An auto-approved `ask` resolves itself and the tool result is
-annotated:
+**Restart OpenCode fully** after install or rebuild. The host imports the plugin
+once at startup; a live session keeps the previous code in memory and will not
+show a rebuilt overlay.
+
+Then ask the agent to run something safe, e.g. `printf hello`. An auto-approved
+`ask` resolves itself and the tool result is annotated:
 
 ```
 [Automatic permission review approved this action once]
@@ -143,29 +170,43 @@ cost/latency.
 
 Every option is optional. Numeric/string options are clamped to safe bounds.
 
-| Option                 | Default                                                   | Bounds / type    | Description                                          |
-| ---------------------- | --------------------------------------------------------- | ---------------- | ---------------------------------------------------- |
-| `model`                | `openai/gpt-5.6-luna`                                     | `provider/model` | Reviewer model (override with any provider/model)    |
-| `variant`              | `max`                                                     | non-empty string | Reasoning variant passed to OpenCode                 |
-| `timeoutMs`            | `120000`                                                  | `5000`–`600000`  | Review timeout (match in both files)                 |
-| `confidenceThreshold`  | `0.7`                                                     | `0.5`–`1`        | Minimum confidence to auto-act; below it escalates   |
-| `maxContextChars`      | `32000`                                                   | `4000`–`200000`  | Total transcript evidence budget                     |
-| `maxPartChars`         | `8000`                                                    | `500`–`50000`    | Per-message-part budget                              |
-| `maxEnrichmentChars`   | `24000`                                                   | `1000`–`100000`  | SSH / script / Git enrichment budget                 |
-| `maxIntentChars`       | `8000`                                                    | `1000`–`50000`   | User-intent history budget                           |
-| `transcriptMessages`   | `12`                                                      | `1`–`100`        | Recent messages shown to the reviewer                |
-| `intentMessages`       | `8`                                                       | `1`–`50`         | Genuine user intents kept                            |
-| `historyMessages`      | `200`                                                     | `20`–`500`       | Messages fetched to recover intent                   |
-| `retainReviewSessions` | `false`                                                   | boolean          | Keep reviewer child sessions (debug only; see below) |
-| `audit`                | `true`                                                    | boolean          | Append one JSONL audit record per review             |
-| `auditPath`            | `~/.local/share/opencode/permission-reviewer-audit.jsonl` | path             | Audit file location                                  |
-| `policy`               | built-in default                                          | string           | Full local override of the tenant policy text        |
-| `debug`                | `false`                                                   | boolean          | Verbose logs to stderr                               |
+| Option                 | Default                                                   | Bounds / type                       | Description                                                                        |
+| ---------------------- | --------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------- |
+| `model`                | `openai/gpt-5.6-luna`                                     | `provider/model`                    | Reviewer model (override with any provider/model)                                  |
+| `variant`              | `max`                                                     | non-empty string                    | Reasoning variant passed to OpenCode                                               |
+| `timeoutMs`            | `120000`                                                  | `5000`–`600000`                     | Review timeout (match in both files)                                               |
+| `confidenceThreshold`  | `0.7`                                                     | `0.5`–`1`                           | Minimum confidence to auto-act; below it escalates                                 |
+| `maxContextChars`      | `32000`                                                   | `4000`–`200000`                     | Total transcript evidence budget                                                   |
+| `maxPartChars`         | `8000`                                                    | `500`–`50000`                       | Per-message-part budget                                                            |
+| `maxEnrichmentChars`   | `24000`                                                   | `1000`–`100000`                     | SSH / script / Git enrichment budget                                               |
+| `maxIntentChars`       | `8000`                                                    | `1000`–`50000`                      | User-intent history budget                                                         |
+| `transcriptMessages`   | `12`                                                      | `1`–`100`                           | Recent messages shown to the reviewer                                              |
+| `intentMessages`       | `8`                                                       | `1`–`50`                            | Genuine user intents kept                                                          |
+| `historyMessages`      | `200`                                                     | `20`–`500`                          | Messages fetched to recover intent                                                 |
+| `retainReviewSessions` | `false`                                                   | boolean                             | Keep reviewer child sessions (debug only; see below)                               |
+| `audit`                | `true`                                                    | boolean                             | Append one JSONL audit record per review                                           |
+| `auditPath`            | `~/.local/share/opencode/permission-reviewer-audit.jsonl` | path                                | Audit file location                                                                |
+| `policy`               | built-in default                                          | string                              | Full local override of the tenant policy text                                      |
+| `debug`                | `false`                                                   | boolean                             | Verbose logs to stderr                                                             |
+| `enforcementMode`      | `observe`                                                 | `observe` / `enforce`               | `enforce` applies declarative policy routes; `observe` audits them only            |
+| `maxSessionDepth`      | `8`                                                       | `1`–`32`                            | Parent-session lineage walk depth                                                  |
+| `maxParentSessions`    | `8`                                                       | `0`–`32`                            | Max parent sessions resolved for actor context                                     |
+| `actorProfiles`        | `{}`                                                      | name → profile map                  | Trusted agent name → profile (`read-only`, `validation`, `workspace`, …)           |
+| `riskPolicy`           | built-in conservative matrix                              | object                              | Override `allow` cells per risk level and failure modes                            |
+| `repositoryTrust`      | `unknown`                                                 | `trusted` / `untrusted` / `unknown` | Repository trust level used by the policy engine                                   |
+| `policyRules`          | `[]`                                                      | array                               | Declarative rules (most-restrictive wins); project rules combine with trusted ones |
+
+Config is layered: built-in defaults ← global
+`~/.config/opencode/permission-reviewer.jsonc` ← project
+`.opencode/permission-reviewer.jsonc` ← inline plugin options (later wins).
+For safety, project config cannot redirect `auditPath`, grant `actorProfiles`,
+or downgrade a global `enforcementMode: "enforce"`.
 
 `audit` defaults to `true`. Each completed review appends one JSON object to
-the audit path with mode `0600`: outcome, rationale, risk, authorization,
-confidence, latency, and a bounded SSH summary. Remote commands are stored as
-**SHA-256**, never in clear text. Set `audit: false` to disable.
+the audit path with mode `0600` (`schemaVersion: 2`): outcome, decision source,
+rationale, risk, authorization, confidence, per-phase latency, reviewer model,
+and a bounded SSH summary. Remote commands are stored as **SHA-256**, never in
+clear text. Set `audit: false` to disable.
 
 ## What you'll see
 
@@ -281,46 +322,69 @@ binary, blocked, or truncated evidence) remains a reviewer decision.
 - UI status messages are versioned, request-scoped, bounded, and transported
   through OpenCode's own workspace TUI event channel.
 
-## Compatibility
+## Supported versions
 
-- **Tested with OpenCode 1.18.13**; requires **≥ 1.18.11 and < 2**.
-- The server half replies to permission requests through OpenCode's
-  authenticated HTTP transport. For the reply it uses the raw SDK client
-  (`input.client._client.post`) because the generated V1 SDK permission method
-  cannot carry the reviewer's feedback message; the request/response contract
-  is the documented `/permission/{requestID}/reply` endpoint. That raw field is
-  **not part of OpenCode's public plugin API** and can change without notice,
-  so if a future OpenCode makes the plugin refuse to start with
-  _"authenticated SDK transport is unavailable"_, file an issue rather than
-  downgrading.
+| Component             | Supported      | Notes                                                        |
+| --------------------- | -------------- | ------------------------------------------------------------ |
+| OpenCode              | `>=1.18.11 <2` | Declared in `engines.opencode`; verified with **1.18.15**    |
+| `@opencode-ai/plugin` | `>=1.18.11 <2` | Peer dependency for the server transport                     |
+| Bun                   | `>=1.3.0`      | Declared in `engines.bun`; CI runs **1.3.0** and **1.3.5**   |
+| TUI overlay           | OpenCode V1    | Needs the host Solid/OpenTUI plugin pipeline (raw TSX entry) |
+| OS                    | macOS / Linux  | On Windows, SSH/Git enrichment degrade to fail-safe manual   |
+
+- **TUI overlay** ships as **raw TSX** (`dist/tui/tui.tsx`). The host compiles
+  it against its embedded Solid/OpenTUI runtime. A prebundled TUI entry loads
+  but never paints. The server half does not depend on the overlay.
+- **Server half** replies through an isolated transport chosen once at startup:
+  public SDK reply with feedback `message` → public reply plus a separate
+  feedback channel → authenticated raw HTTP
+  (`/permission/{requestID}/reply` via `input.client._client.post`) → **refuse
+  startup**. On OpenCode 1.18.x the message-bearing reply is only reachable via
+  the raw transport, so the chain resolves there. That raw field is **not part
+  of OpenCode's public plugin API** and can change without notice. If startup
+  fails with _"authenticated SDK transport is unavailable"_, file an issue
+  rather than downgrading.
+- OpenCode **v2-generation** hosts are detected at startup and refused until
+  their reply contract is verified.
 - Full enrichment assumes a Unix-like system (macOS/Linux). On Windows, SSH and
   Git enrichment degrade gracefully toward fail-safe manual review.
 - **`retainReviewSessions`**: keep it `false` in normal use. Set `true` only to
   debug the known `json_schema` structured-output serialization bug in OpenCode
   1.18.11 — it keeps the child session on disk so you can inspect the malformed
   response; it does not fix the bug.
+- Run `opencode-permission-reviewer doctor` to compare installed versions
+  against the ranges above.
 
 ## Troubleshooting
 
-| Symptom                                       | Likely cause                                                | Fix                                                                                                    |
-| --------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Every `ask` escalates after a long wait       | Reviewer model not found / provider not configured          | Ensure the model's provider is set up in OpenCode and the `model` ID is valid in **both** config files |
-| Plugin does nothing                           | No `ask` rule in your `permission` policy                   | Add e.g. `"bash": "ask"`                                                                               |
-| TUI overlay never appears                     | Plugin not registered in `tui.json`, or `timeoutMs` differs | Register the same block in `tui.json`; match `timeoutMs`                                               |
-| Startup error: "authenticated SDK transport…" | OpenCode < 1.18.11 or an incompatible SDK change            | Upgrade OpenCode to ≥ 1.18.11; report the version in an issue                                          |
-| Reviews always time out                       | `timeoutMs` too low for the model                           | Raise `timeoutMs` (up to 600000)                                                                       |
-| `GIT_STATE_ANALYSIS` shows `spawn git ENOENT` | `git` not on `PATH`                                         | Install `git`; Git enrichment degrades safely until then                                               |
-| Want to turn it off                           | —                                                           | Remove the plugin entry from both `opencode.json` and `tui.json`                                       |
+| Symptom                                       | Likely cause                                                                                     | Fix                                                                                                                                                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every `ask` escalates after a long wait       | Reviewer model not found / provider not configured                                               | Ensure the model's provider is set up in OpenCode and the `model` ID is valid in **both** config files                                                                                          |
+| Plugin does nothing                           | No `ask` rule in your `permission` policy                                                        | Add e.g. `"bash": "ask"`                                                                                                                                                                        |
+| TUI overlay never appears                     | Not in `tui.json`; mismatched `timeoutMs`; stale process; or host without Solid/OpenTUI pipeline | Register the same block in `tui.json` with matching `timeoutMs`. Overlay is raw TSX (`dist/tui/tui.tsx`); a prebundled `dist/tui.js` does not render. **Fully restart OpenCode** after rebuilds |
+| Startup error: "authenticated SDK transport…" | OpenCode outside `>=1.18.11 <2`, or an SDK change that hides the raw transport                   | Upgrade OpenCode and `@opencode-ai/plugin` into the supported range; report the version in an issue                                                                                             |
+| Startup error: "Detected an OpenCode v2…"     | OpenCode v2-generation host                                                                      | Run an OpenCode 1.18.x host (v2 is not supported yet)                                                                                                                                           |
+| Reviews always time out                       | `timeoutMs` too low for the model                                                                | Raise `timeoutMs` (up to 600000)                                                                                                                                                                |
+| `GIT_STATE_ANALYSIS` shows `spawn git ENOENT` | `git` not on `PATH`                                                                              | Install `git`; Git enrichment degrades safely until then                                                                                                                                        |
+| Want a version check                          | Host/SDK outside the supported range                                                             | Run `opencode --version` and `opencode-permission-reviewer doctor`                                                                                                                              |
+| Want to turn it off                           | —                                                                                                | Remove the plugin entry from both `opencode.json` and `tui.json`                                                                                                                                |
 
-Enable `"debug": true` for verbose stderr logs while investigating.
+Enable `"debug": true` for verbose stderr logs while investigating. TUI load
+errors (`[tui.plugin] …`) are printed on the **TUI process console**, not in
+`~/.local/share/opencode/log/opencode.log`.
 
 ## Development
 
 ```bash
 bun install
-bun run check          # typecheck + tests (must pass before any push)
+bun run check          # format + lint + typecheck + tests + build (must pass before any push)
 bun run test:stress    # stress suite only
+bun run test:package   # npm pack ship-set smoke (raw TUI + server bundle)
 ```
+
+`bun run build` bundles the server/CLI with tsup, then copies the slim TUI
+source graph into `dist/tui/` as raw TSX (`scripts/copy-tui.ts`). Do not add a
+prebundled TUI entry — it will not render on the host.
 
 The live end-to-end harness in `tests/live-harness.ts` runs against a real
 OpenCode server + model and is **not** part of `bun test`; see

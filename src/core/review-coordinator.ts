@@ -265,8 +265,9 @@ export class ReviewCoordinator {
     // supersedes the review before we spend a model call on it.
     if (this.isSuperseded(request)) return this.supersedeResult()
 
-    // Evaluate the declarative policy (Layer B). In observe mode this produces
-    // a trace for audit only; in enforce mode a manual/deny route skips the LLM.
+    // Evaluate the declarative policy (deterministic rules, no LLM). In observe
+    // mode this produces a trace for audit only; in enforce mode a manual/deny
+    // route skips the LLM.
     const policyTrace = evaluatePolicy(
       envelope.capability,
       envelope.actor,
@@ -278,6 +279,7 @@ export class ReviewCoordinator {
     if (this.config.enforcementMode === "enforce") {
       if (policyTrace.finalRoute === "manual") {
         const reason = `Declarative policy route: manual. ${policyTrace.matchedRules.map((m) => m.reason).join("; ")}`
+        await this.emit(request, "manual", reason)
         return { kind: "escalate", reason, decisionSource: "deterministic-policy" }
       }
       if (policyTrace.finalRoute === "deny") {
@@ -701,13 +703,30 @@ export class ReviewCoordinator {
       ...(actor?.agentName.value === undefined ? {} : { actorName: actor.agentName.value }),
       ...(actor === undefined ? {} : { actorProfile: actor.profile.value }),
     })
-    await this.ctx.publishUiStatus(status).catch((error) => {
+    // Status publishing is best-effort: a TUI failure must not fail the review.
+    try {
+      const response = await this.ctx.publishUiStatus(status)
+      // Both publish paths resolve with `{ data, error }`; a failure arrives as
+      // an `error` field rather than a rejection (the raw fallback can reject
+      // too, caught below).
+      if (
+        response &&
+        typeof response === "object" &&
+        "error" in response &&
+        (response as { error?: unknown }).error !== undefined
+      ) {
+        this.log("failed to publish reviewer UI status", {
+          requestID: request.id,
+          phase,
+          error: JSON.stringify((response as { error: unknown }).error),
+        })
+      }
+    } catch (error) {
       this.log("failed to publish reviewer UI status", {
         requestID: request.id,
         phase,
         error: error instanceof Error ? error.message : String(error),
       })
-      return {}
-    })
+    }
   }
 }

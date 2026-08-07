@@ -5,8 +5,7 @@
  * config before writing, and refuses to clobber an already-registered entry or
  * a malformed file. Supports --dry-run, --print, and --yes for non-interactive
  * use. Never prints the full config contents (user configs may carry secrets).
- *
- * Plan §16.2. */
+ */
 import { parseArgs } from "node:util"
 import { homedir } from "node:os"
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"

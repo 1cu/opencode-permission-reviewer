@@ -32,9 +32,28 @@ bun run check   # typecheck + tests — must pass before any push
 
 - `src/decision.ts` / `src/policy.ts` / `src/emergency-brake.ts` — these encode
   safety invariants. Document the reasoning for any change.
-- `src/index.ts` reaches into OpenCode's authenticated SDK transport; changes
-  there must keep the graceful "refusing unsafe partial startup" behavior.
+- The v1 adapter and isolated reply transport
+  (`src/opencode/v1-adapter.ts`, `src/opencode/reply-transport.ts`) reach into
+  OpenCode's authenticated SDK transport; changes there must keep the graceful
+  "refusing unsafe partial startup" behavior.
 - The reviewer runs **tool-free**; never add tool access to reviewer sessions.
+- The TUI entry must stay **raw TSX** (see [Build output](#build-output-dist)
+  below). Do not reintroduce a prebundled `dist/tui.js`.
+
+## Build output (`dist/`)
+
+- `bun run build` runs tsup to bundle the server and CLI into `dist/index.js`
+  and `dist/explain.js`, then runs `bun scripts/copy-tui.ts` to copy the slim
+  TUI source graph into `dist/tui/` as **raw TSX**.
+- The TUI must stay unbundled: OpenCode's host compiles plugin `.tsx` with its
+  own Solid/OpenTUI pipeline, and a prebundled TUI does not render. When you
+  touch the TUI, keep the file list in `scripts/copy-tui.ts` in sync with the
+  imports of `src/tui.tsx` and its copied modules (no server engine, no
+  `node:` builtins).
+- `dist/` is gitignored and regenerated on install (`prepare` runs the build);
+  never commit build output. `tests/package-smoke.test.ts` verifies the packed
+  tarball ships exactly the expected set (including the raw TUI files and the
+  absence of a prebundled TUI).
 
 ## Live (end-to-end) testing
 

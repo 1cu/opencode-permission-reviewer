@@ -16,11 +16,7 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./tui": {
-      "types": "./dist/tui.d.ts",
-      "import": "./dist/tui.js",
-      "default": "./dist/tui.js"
-    },
+    "./tui": "./dist/tui/tui.tsx",
     "./cli": {
       "types": "./dist/explain.d.ts",
       "import": "./dist/explain.js",
@@ -86,7 +82,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "build": "tsup",
+    "build": "tsup && bun scripts/copy-tui.ts",
     "test": "bun test",
     "test:stress": "bun test tests/stress.test.ts --timeout 30000",
     "test:package": "bun test tests/package-smoke.test.ts --timeout 120000",
@@ -94,7 +90,6 @@
   },
   "dependencies": {
     "@opentui/core": "0.4.5",
-    "@opentui/keymap": "0.4.5",
     "@opentui/solid": "0.4.5",
     "solid-js": "1.9.12"
   }

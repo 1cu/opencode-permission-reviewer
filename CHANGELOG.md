@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- TUI overlay renders again: the `./tui` export points at raw
+  `dist/tui/tui.tsx` (copied by `scripts/copy-tui.ts`) instead of a prebundled
+  JS file, so the OpenCode host compiles it with its own Solid/OpenTUI
+  pipeline. The shipped TUI graph no longer pulls the server engine into the
+  TUI process.
+- Overlay selection no longer hides later reviews behind a stale manual toast:
+  manual entries are excluded from the panel slot, in-flight reviews win over
+  terminal results, and the start grace before "manual" is 15s (was 3s).
+- UI status publishing treats the typed SDK `{ data, error }` resolve shape as
+  a failure when `error` is set, and the declarative manual policy route emits
+  a UI status. A failed `mode.push` no longer leaves the overlay half-registered.
+
+### Changed
+
+- Dropped the unused `@opentui/keymap` dependency.
+
 ## [0.9.0] - 2026-08-07
 
 ### Added

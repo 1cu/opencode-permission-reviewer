@@ -1,7 +1,11 @@
+/** @jsxImportSource @opentui/solid */
 import type { TuiPlugin, TuiPluginModule, TuiPluginApi } from "@opencode-ai/plugin/tui"
 import { createEffect, createSignal, onCleanup, Show } from "solid-js"
 import { DEFAULT_CONFIG, resolveConfig } from "./config.ts"
-import { extractPermissionRequest } from "./runtime.ts"
+// Import the normalizer directly. Going through ./runtime.ts would evaluate the
+// whole server engine (coordinator, git/ssh evidence, node:child_process) inside
+// the TUI process for a single unused re-export.
+import { extractPermissionRequest } from "./opencode/event-normalizer.ts"
 import { decodeUiStatus, type ReviewUiStatus } from "./ui-protocol.ts"
 import { ReviewUiState } from "./ui-state.ts"
 
@@ -170,8 +174,12 @@ function Overlay(props: { api: TuiPluginApi; state: ReviewUiState }) {
   createEffect(() => {
     const status = active()
     if (!status || status.phase === "manual") return
-    const pop = props.api.mode.push(REVIEW_MODE)
-    onCleanup(pop)
+    try {
+      const pop = props.api.mode.push(REVIEW_MODE)
+      onCleanup(pop)
+    } catch {
+      // mode.push can throw if the host rejects unknown modes; keep the panel.
+    }
   })
 
   onCleanup(() => {
