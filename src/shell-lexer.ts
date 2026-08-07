@@ -239,7 +239,6 @@ function walk(tokens: ShellToken[], out: ShellToken[][]): void {
   while (i < tokens.length) {
     const tok = tokens[i]!
     if (tok.value === "--") {
-      i += 1
       break
     }
     const base = basename(tok.value)
