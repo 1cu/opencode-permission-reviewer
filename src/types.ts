@@ -163,9 +163,17 @@ export interface ReviewEnvelope {
   /** The policy trace produced for this request, surfaced to the reviewer prompt
    *  as EFFECTIVE_POLICY_SUMMARY and to audit. Observe-only. */
   policyTrace?: PolicyTrace
+  /** Per-phase timing captured during evidence assembly (context/enrichment).
+   *  The reviewer and reply phases are timed in the coordinator. */
+  timings?: { contextMs?: number; enrichmentMs?: number }
   /** The parsed command reused across evidence providers. */
   parsedCommand?: ParsedCommand
 }
+
+/** Which layer produced the final decision for a request. Threaded into the
+ *  audit record so reports can split outcomes by source. */
+export type DecisionSource =
+  "emergency-brake" | "deterministic-policy" | "llm-reviewer" | "manual-superseded" | "failure-safe"
 
 export interface ReviewAuditRecord {
   /**
@@ -178,27 +186,51 @@ export interface ReviewAuditRecord {
   decisionSchemaVersion?: number
   /** Version of the reviewer system prompt used for this decision. */
   promptVersion?: string
+  /** Which layer produced the outcome (brake, policy, reviewer, supersede,
+   *  failure-safe). Absent on legacy v1 records. */
+  decisionSource?: DecisionSource
   timestamp: string
   durationMs: number
   requestID: string
   sessionID: string
   permission: string
+  /** Stable hash of the canonical request (permission, patterns, metadata,
+   *  tool) for cross-record correlation. Absent on legacy v1 records. */
+  actionHash?: string
   outcome: ReviewExecutionResult["kind"]
   reason: string
   riskLevel?: RiskLevel
   userAuthorization?: UserAuthorization
+  /** How well the action aligned with the recovered intent (from the reviewer
+   *  decision). Absent when no reviewer decision was reached. */
+  scopeAlignment?: ScopeAlignment
   confidence?: number
+  /** The reviewer model used for this request (config.model). */
+  reviewerModel?: string
+  /** Per-phase timings. Absent on legacy v1 records and on deterministic paths
+   *  that never reach that phase. */
+  timings?: { contextMs?: number; enrichmentMs?: number; reviewerMs?: number; replyMs?: number }
+  /** Non-fatal warnings accumulated during evidence collection/analysis. */
+  warnings?: string[]
   reviewerSessionID?: string
   /** Root session of the request's ancestry (additive; absent when lineage was
    *  unavailable). */
   rootSessionID?: string
+  /** Overall evidence completeness for the request (additive). */
+  evidenceCompleteness?: string
   /** Resolved actor snapshot for audit (additive). Uses identityCompleteness
-   *  (not the decision's numeric confidence) to avoid field ambiguity. */
+   *  (not the decision's numeric confidence) to avoid field ambiguity; v2 also
+   *  carries identitySource + confidence. */
   actor?: {
     name?: string
     mode?: string
     profile: ActorProfile
     identityCompleteness: "complete" | "partial" | "unknown"
+    /** How the agent identity was established (tool-message, session-api,
+     *  unavailable, …). Absent on legacy v1 records. */
+    identitySource?: string
+    /** Reliability of the identity claim. Absent on legacy v1 records. */
+    confidence?: EvidenceConfidence
     delegationDepth?: number
   }
   ssh?: Array<{
@@ -249,6 +281,8 @@ export interface ReviewExecutionResult {
   decision?: ReviewDecision
   reason: string
   reviewSessionID?: string
+  /** Which layer produced this result; threaded into the audit record. */
+  decisionSource?: DecisionSource
 }
 
 // ---------------------------------------------------------------------------

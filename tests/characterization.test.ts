@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test"
 import { mkdir } from "node:fs/promises"
 import type { ReviewAuditRecord } from "../src/types.ts"
+import { DEFAULT_CONFIG } from "../src/config.ts"
 import { decision, MockClient, request, runtime } from "./helpers.ts"
 
 beforeAll(async () => {
@@ -209,19 +210,26 @@ describe("characterization gaps (baseline prereq)", () => {
     expect(audits).toHaveLength(1)
     expect(audits[0]).toMatchObject({
       outcome: "escalate",
-      schemaVersion: 1,
+      schemaVersion: 2,
+      decisionSource: "failure-safe",
       ssh: [{ destination: "ubuntu@203.0.113.8", port: "2222" }],
     })
   })
 
-  test("audit records carry schemaVersion 1 on the success path", async () => {
+  test("audit records carry schemaVersion 2 and the v2 fields on the success path", async () => {
     const harness = runtime()
     await harness.runtime.process(request())
     const audits = (harness.ctx as unknown as { auditRecords: ReviewAuditRecord[] }).auditRecords
     expect(audits).toHaveLength(1)
-    expect(audits[0]!.schemaVersion).toBe(1)
+    expect(audits[0]!.schemaVersion).toBe(2)
     expect(audits[0]!.decisionSchemaVersion).toBe(2)
     expect(audits[0]!.promptVersion).toBe("2.0.0")
+    expect(audits[0]!.decisionSource).toBe("llm-reviewer")
+    expect(audits[0]!.actionHash).toMatch(/^[0-9a-f]{64}$/)
+    expect(audits[0]!.scopeAlignment).toBe("aligned")
+    expect(audits[0]!.reviewerModel).toBe(DEFAULT_CONFIG.model)
+    expect(audits[0]!.timings).toBeDefined()
+    expect(audits[0]!.timings?.reviewerMs).toBeGreaterThanOrEqual(0)
   })
 })
 

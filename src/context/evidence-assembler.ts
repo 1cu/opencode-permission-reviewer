@@ -29,6 +29,7 @@ export async function assembleEvidence(
   providers: EvidenceProvider[],
   ctx: EvidenceAssemblyContext,
 ): Promise<ReviewEnvelope> {
+  const contextStart = performance.now()
   const response = await ctx.client.session.messages({
     path: { id: request.sessionID },
     query: {
@@ -63,6 +64,9 @@ export async function assembleEvidence(
     }
   }
 
+  const contextMs = performance.now() - contextStart
+
+  const enrichmentStart = performance.now()
   const fragments = await Promise.all(
     providers.map((provider) =>
       provider.collect({
@@ -73,6 +77,7 @@ export async function assembleEvidence(
       }),
     ),
   )
+  const enrichmentMs = performance.now() - enrichmentStart
 
   const enrichment = fragments
     .map((fragment) => fragment.text)
@@ -89,6 +94,7 @@ export async function assembleEvidence(
     request,
     directory: ctx.directory,
     worktree: ctx.worktree,
+    timings: { contextMs, enrichmentMs },
     transcript: buildTranscript(messages, ctx.config),
     intentHistory: buildIntentHistory(messages, ctx.config),
     enrichment,

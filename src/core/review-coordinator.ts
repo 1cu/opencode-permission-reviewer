@@ -1,7 +1,10 @@
+import { createHash } from "node:crypto"
 import type {
   ActorContext,
   ApprovedAnnotation,
   CapabilityAssessment,
+  DecisionSource,
+  EvidenceCompleteness,
   PermissionRequest,
   PolicyTrace,
   ReviewDecision,
@@ -49,6 +52,18 @@ function approvedNote(decisions: ApprovedAnnotation[]): string {
   return `[Automatic permission review approved this action once]\n${lines.join("\n")}`
 }
 
+/** Stable hash of the canonical request so audit records for the same action
+ *  correlate across runs. Patterns are sorted so event order does not matter. */
+function actionHash(request: PermissionRequest): string {
+  const canonical = JSON.stringify({
+    permission: request.permission,
+    patterns: [...request.patterns].sort(),
+    metadata: request.metadata,
+    tool: request.tool,
+  })
+  return createHash("sha256").update(canonical).digest("hex")
+}
+
 /**
  * Owns the review lifecycle for permission requests: orchestration, the
  * supersede/annotation state machines, and the model call. The adapter
@@ -69,6 +84,15 @@ export class ReviewCoordinator {
   private readonly capabilityByRequest = new Map<string, CapabilityAssessment>()
   // Bridge for the policy trace (same lifecycle as the other bridges).
   private readonly policyTraceByRequest = new Map<string, PolicyTrace>()
+  // Per-phase timings captured during the review (context/enrichment from the
+  // assembler, reviewer/reply from the coordinator). audit() runs last and reads
+  // the per-request map so deterministic paths simply omit a phase they skipped.
+  private readonly timingsByRequest = new Map<
+    string,
+    { contextMs?: number; enrichmentMs?: number; reviewerMs?: number; replyMs?: number }
+  >()
+  // Overall evidence completeness resolved during context assembly.
+  private readonly evidenceCompletenessByRequest = new Map<string, EvidenceCompleteness>()
   /**
    * Request IDs that a human (or any other reply source) resolved while the
    * automatic review was still in flight. The in-flight review must then give
@@ -143,6 +167,8 @@ export class ReviewCoordinator {
       this.actorByRequest.delete(request.id)
       this.capabilityByRequest.delete(request.id)
       this.policyTraceByRequest.delete(request.id)
+      this.timingsByRequest.delete(request.id)
+      this.evidenceCompletenessByRequest.delete(request.id)
     }
   }
 
@@ -150,6 +176,7 @@ export class ReviewCoordinator {
     return {
       kind: "escalate",
       reason: "Request already answered manually; automatic review superseded.",
+      decisionSource: "manual-superseded",
     }
   }
 
@@ -192,7 +219,7 @@ export class ReviewCoordinator {
       }
       const superseded = await this.denyAndReply(request, reason, decision)
       if (superseded) return superseded
-      return { kind: "deny", reason, decision }
+      return { kind: "deny", reason, decision, decisionSource: "emergency-brake" }
     }
 
     const brake = emergencyBrakeReason(request)
@@ -209,7 +236,7 @@ export class ReviewCoordinator {
       }
       const superseded = await this.denyAndReply(request, brake, decision)
       if (superseded) return superseded
-      return { kind: "deny", reason: brake, decision }
+      return { kind: "deny", reason: brake, decision, decisionSource: "emergency-brake" }
     }
 
     const envelope = await this.collectEnvelope(request)
@@ -226,7 +253,12 @@ export class ReviewCoordinator {
       }
       const superseded = await this.denyAndReply(request, envelope.preflightDenial, decision)
       if (superseded) return superseded
-      return { kind: "deny", reason: envelope.preflightDenial, decision }
+      return {
+        kind: "deny",
+        reason: envelope.preflightDenial,
+        decision,
+        decisionSource: "deterministic-policy",
+      }
     }
     // A manual reply arriving during context collection (transcript, git, ssh)
     // supersedes the review before we spend a model call on it.
@@ -245,7 +277,7 @@ export class ReviewCoordinator {
     if (this.config.enforcementMode === "enforce") {
       if (policyTrace.finalRoute === "manual") {
         const reason = `Declarative policy route: manual. ${policyTrace.matchedRules.map((m) => m.reason).join("; ")}`
-        return { kind: "escalate", reason }
+        return { kind: "escalate", reason, decisionSource: "deterministic-policy" }
       }
       if (policyTrace.finalRoute === "deny") {
         const reason = `Declarative policy route: deny. ${policyTrace.matchedRules.map((m) => m.reason).join("; ")}`
@@ -261,7 +293,12 @@ export class ReviewCoordinator {
         }
         const superseded = await this.denyAndReply(request, reason, decision)
         if (superseded) return superseded
-        return { kind: "deny", reason, decision }
+        return {
+          kind: "deny",
+          reason,
+          decision,
+          decisionSource: "deterministic-policy",
+        }
       }
     }
 
@@ -391,6 +428,10 @@ export class ReviewCoordinator {
     if (envelope.capability !== undefined) {
       this.capabilityByRequest.set(request.id, envelope.capability)
     }
+    if (envelope.timings !== undefined) this.timingsByRequest.set(request.id, envelope.timings)
+    if (envelope.evidenceCompleteness !== undefined) {
+      this.evidenceCompletenessByRequest.set(request.id, envelope.evidenceCompleteness)
+    }
     return envelope
   }
 
@@ -405,10 +446,24 @@ export class ReviewCoordinator {
     const actor = this.actorByRequest.get(request.id)
     const capability = this.capabilityByRequest.get(request.id)
     const policyTrace = this.policyTraceByRequest.get(request.id)
+    const timings = this.timingsByRequest.get(request.id)
+    const evidence = this.evidenceCompletenessByRequest.get(request.id)
+    // Infer the source when a path did not set it explicitly (the process()
+    // catch builds an escalate with no decision): a result still carrying a
+    // reviewer decision is an LLM outcome; everything else without an explicit
+    // source is a fail-safe escalation.
+    const decisionSource: DecisionSource =
+      result.decisionSource ?? (decision === undefined ? "failure-safe" : "llm-reviewer")
+    const warnings: string[] = []
+    if (evidence !== undefined) warnings.push(...evidence.reasons)
+    if (capability !== undefined) warnings.push(...capability.analysisWarnings)
     const record: ReviewAuditRecord = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       decisionSchemaVersion: DECISION_SCHEMA_VERSION,
       promptVersion: REVIEWER_PROMPT_VERSION,
+      decisionSource,
+      actionHash: actionHash(request),
+      reviewerModel: this.config.model,
       timestamp: new Date().toISOString(),
       durationMs: Math.max(0, Date.now() - startedAt),
       requestID: request.id,
@@ -416,11 +471,15 @@ export class ReviewCoordinator {
       permission: request.permission,
       outcome: result.kind,
       reason: result.reason,
+      ...(warnings.length === 0 ? {} : { warnings }),
+      ...(timings === undefined ? {} : { timings }),
+      ...(evidence === undefined ? {} : { evidenceCompleteness: evidence.overall }),
       ...(decision === undefined
         ? {}
         : {
             riskLevel: decision.risk_level,
             userAuthorization: decision.user_authorization,
+            scopeAlignment: decision.scope_alignment,
             confidence: decision.confidence,
           }),
       ...(result.reviewSessionID === undefined
@@ -435,6 +494,8 @@ export class ReviewCoordinator {
               ...(actor.mode.value === undefined ? {} : { mode: actor.mode.value }),
               profile: actor.profile.value,
               identityCompleteness: actor.identityCompleteness,
+              identitySource: actor.agentName.source,
+              confidence: actor.agentName.confidence,
               delegationDepth: actor.delegationDepth.value,
             },
           }),
@@ -521,6 +582,7 @@ export class ReviewCoordinator {
       const policy = this.config.policy ?? DEFAULT_TENANT_POLICY
       const prompt = buildReviewerPrompt(policy, buildEvidence(envelope, this.config))
 
+      const reviewerStart = performance.now()
       const response = await withTimeout(
         this.ctx.client.session.prompt({
           path: { id: reviewSessionID },
@@ -543,6 +605,9 @@ export class ReviewCoordinator {
         }),
         this.config.timeoutMs,
       )
+      const reviewerMs = performance.now() - reviewerStart
+      const currentTimings = this.timingsByRequest.get(envelope.request.id) ?? {}
+      this.timingsByRequest.set(envelope.request.id, { ...currentTimings, reviewerMs })
       const data = responseData(response, "session.prompt")
       const parsed = parseDecision(extractStructured(data))
       if (!parsed) {
@@ -550,14 +615,20 @@ export class ReviewCoordinator {
           kind: "escalate",
           reason: "Reviewer returned missing or invalid structured output.",
           reviewSessionID,
+          decisionSource: "failure-safe",
         }
       }
-      return { ...enforceDecision(parsed, this.config), reviewSessionID }
+      return {
+        ...enforceDecision(parsed, this.config),
+        reviewSessionID,
+        decisionSource: "llm-reviewer",
+      }
     } catch (error) {
       return {
         kind: "escalate",
         reason: error instanceof Error ? error.message : String(error),
         ...(reviewSessionID === undefined ? {} : { reviewSessionID }),
+        decisionSource: "failure-safe",
       }
     } finally {
       if (reviewSessionID !== undefined) {
@@ -586,6 +657,7 @@ export class ReviewCoordinator {
     reply: "once" | "reject",
     message?: string,
   ): Promise<boolean> {
+    const replyStart = performance.now()
     const response = await this.ctx.permissionReply({
       path: { requestID: request.id },
       body: {
@@ -594,6 +666,9 @@ export class ReviewCoordinator {
       },
       query: { directory: this.ctx.directory },
     })
+    const replyMs = performance.now() - replyStart
+    const currentTimings = this.timingsByRequest.get(request.id) ?? {}
+    this.timingsByRequest.set(request.id, { ...currentTimings, replyMs })
     if (response.error !== undefined) {
       if (isAlreadyResolvedError(response.error)) {
         this.resolvedManually.add(request.id)
