@@ -203,6 +203,55 @@ describe("policy engine — condition matching", () => {
     expect(evaluatePolicy(c, actor("unknown"), config, rules).matchedRules).toHaveLength(1)
     expect(evaluatePolicy(c, actor("workspace"), config, rules).matchedRules).toHaveLength(0)
   })
+
+  test("packageManagement requires both lifecycle scripts and the package-management class", () => {
+    const rules: PolicyRule[] = [
+      {
+        id: "pkg",
+        source: "builtin",
+        when: { packageManagement: true },
+        effect: "manual",
+        reason: "pkg",
+      },
+    ]
+    // lifecycle scripts detected but the action class is not package-management → no match.
+    const cLifecycleOnly = cap({
+      actionClass: { value: "code-execution", source: "static-analysis", confidence: "high" },
+      invokesPackageLifecycleScripts: {
+        value: true,
+        source: "static-analysis",
+        confidence: "high",
+      },
+    })
+    expect(evaluatePolicy(cLifecycleOnly, undefined, config, rules).matchedRules).toHaveLength(0)
+    // both gates satisfied → match.
+    const cBoth = cap({
+      actionClass: { value: "package-management", source: "static-analysis", confidence: "high" },
+      invokesPackageLifecycleScripts: {
+        value: true,
+        source: "static-analysis",
+        confidence: "high",
+      },
+    })
+    expect(evaluatePolicy(cBoth, undefined, config, rules).matchedRules).toHaveLength(1)
+  })
+
+  test("repositoryTrust condition excludes non-matching trust levels", () => {
+    const rules: PolicyRule[] = [
+      {
+        id: "trusted-only",
+        source: "builtin",
+        when: { repositoryTrust: ["trusted"] },
+        effect: "manual",
+        reason: "trusted only",
+      },
+    ]
+    // default config trust is "unknown" → rule does not match.
+    expect(evaluatePolicy(cap(), undefined, config, rules).matchedRules).toHaveLength(0)
+    // config trust set to "trusted" → matches.
+    const trustedConfig = { ...config, repositoryTrust: "trusted" as const }
+    expect(evaluatePolicy(cap(), undefined, trustedConfig, rules).matchedRules).toHaveLength(1)
+  })
 })
 
 describe("policy engine — trust boundary", () => {

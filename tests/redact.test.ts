@@ -124,6 +124,16 @@ describe("redactSecrets — credential formats", () => {
     expect(redactSecrets("Set-Cookie: sid=abcdefgh1234567890")).not.toContain("abcdefgh")
   })
 
+  test("redacts authorization / x-api-key / proxy-authorization header values", () => {
+    // Direct header-value form (no Bearer/Basic scheme prefix), which the
+    // auth-scheme rule does not catch — these hit the authorization-key rule.
+    const opaque = "syntheticapikey1234567890abcd"
+    expect(redactSecrets(`x-api-key: ${opaque}`)).not.toContain(opaque)
+    expect(redactSecrets(`authorization: ${opaque}`)).not.toContain(opaque)
+    expect(redactSecrets(`proxy-authorization: ${opaque}`)).not.toContain(opaque)
+    expect(redactSecrets(`x-auth-token=${opaque}`)).not.toContain(opaque)
+  })
+
   test("redacts compound env-var names (AWS_SECRET_ACCESS_KEY, DB_PASSWORD, …)", () => {
     expect(redactSecrets(AWS_SECRET_LINE)).not.toContain("wJalr")
     expect(redactSecrets("DB_PASSWORD=hunter2pass")).not.toContain("hunter2")

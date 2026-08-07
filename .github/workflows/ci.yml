@@ -22,3 +22,21 @@ jobs:
           bun-version: ${{ matrix.bun }}
       - run: bun install --frozen-lockfile
       - run: bun run check
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Coverage numbers are reported against the pinned current version.
+          bun-version: "1.3.5"
+      - run: bun install --frozen-lockfile
+      - run: bun run test:coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          if-no-files-found: error

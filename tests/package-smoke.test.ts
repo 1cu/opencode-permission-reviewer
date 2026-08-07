@@ -66,9 +66,16 @@ describe("npm pack ship set", () => {
     for (const required of [
       "package.json",
       "README.md",
+      "CHANGELOG.md",
       "LICENSE",
       "NOTICE",
       "SECURITY.md",
+      "docs/migration-guide.md",
+      "docs/threat-model.md",
+      "docs/policy-reference.md",
+      "docs/actor-resolution.md",
+      "docs/capability-model.md",
+      "docs/compatibility.md",
       "dist/index.js",
       "dist/index.d.ts",
       "dist/explain.js",
@@ -100,6 +107,7 @@ describe("npm pack ship set", () => {
         f.startsWith("node_modules/") ||
         f === "AGENTS.md" ||
         f === "CONTRIBUTING.md" ||
+        f === "CODE_OF_CONDUCT.md" ||
         f === "tsup.config.ts" ||
         f === "tsconfig.json" ||
         f === "eslint.config.ts" ||
