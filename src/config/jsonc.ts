@@ -25,7 +25,7 @@ export function parseJsonc(text: string): Record<string, unknown> {
 /** Strip JSONC comments and trailing commas while preserving string contents.
  *  Trailing commas are handled in the same pass as comments (both are
  *  string-aware), so a `,}` inside a string value is never corrupted. */
-function stripCommentsAndTrailingCommas(input: string): string {
+export function stripCommentsAndTrailingCommas(input: string): string {
   let out = ""
   let i = 0
   const len = input.length
