@@ -1,0 +1,132 @@
+name: release
+
+# Tag-driven release pipeline. Pushing a `v*` tag builds the package,
+# publishes to npm with provenance, generates a SHA-256 checksum file and an
+# SBOM, and creates a GitHub Release with all artifacts attached.
+#
+# Prerequisites (configure once in repo settings):
+#   - Secret `NPM_TOKEN` with publish rights for `opencode-permission-reviewer`.
+#   - Actions → General → "Workflow permissions" allows id-token writes
+#     (required for npm --provenance).
+#
+# Versioning: tags matching `vX.Y.Z` publish to the `latest` dist-tag; tags
+# matching `vX.Y.Z-<pre>` (e.g. `v1.0.0-rc.1`) publish to the `next`
+# dist-tag so prereleases do not replace the stable release.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the CHANGELOG extraction can locate the version.
+          fetch-depth: 0
+
+      - name: Read tag metadata
+        id: meta
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          # Prerelease if the version contains a hyphen (semver pre-release).
+          if [[ "$version" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "dist_tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "dist_tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.5"
+
+      - run: bun install --frozen-lockfile
+
+      # Build must pass the same gate as CI before we cut an artifact.
+      - name: Build
+        run: bun run check
+
+      # Pack into a tarball and verify the ship set.
+      - name: Pack
+        run: |
+          mkdir -p artifacts
+          npm pack --pack-destination artifacts
+          echo "##[group]Tarball contents"
+          tar -tzf artifacts/*.tgz | sort
+          echo "##[endgroup]"
+
+      - name: Generate SHA-256 checksums
+        run: |
+          cd artifacts
+          sha256sum *.tgz > checksums-sha256.txt
+          cat checksums-sha256.txt
+
+      # Publish to npm with build provenance (signed OIDC attestation).
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm config set //registry.npmjs.org/ ':authToken=${NODE_AUTH_TOKEN}'
+          npm publish "$(ls artifacts/*.tgz)" \
+            --provenance \
+            --access public \
+            --tag "${{ steps.meta.outputs.dist_tag }}"
+
+      # Generate a CycloneDX SBOM from the packed tarball.
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          artifact: artifacts
+          format: cyclonedx-json
+          output-file: artifacts/sbom.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      # Create the GitHub Release with notes extracted from CHANGELOG.md.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Extract the matching section from CHANGELOG.md (falls back to
+          # auto-generated notes if the section is not found).
+          version="${{ steps.meta.outputs.version }}"
+          notes=$(awk -v v="$version" '
+            /^## \[/ { in_section=0 }
+            $0 ~ "^## \\[" v "\\]" { in_section=1; next }
+            in_section { print }
+          ' CHANGELOG.md)
+
+          args=(release create "${{ steps.meta.outputs.tag }}" \
+            --title "${{ steps.meta.outputs.tag }}" \
+            --target main \
+            --notes-file -)
+
+          if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
+            args+=(--prerelease)
+          fi
+
+          if [ -n "$notes" ]; then
+            printf '%s\n' "$notes" | gh "${args[@]}"
+          else
+            gh "${args[@]}" --generate-notes
+          fi
+
+          gh release upload "${{ steps.meta.outputs.tag }}" \
+            artifacts/*.tgz \
+            artifacts/checksums-sha256.txt \
+            artifacts/sbom.cdx.json \
+            --clobber
