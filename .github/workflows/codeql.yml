@@ -29,3 +29,16 @@ jobs:
       - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:javascript-typescript"
+
+  # Stable required-check name for branch protection (matches the workflow name
+  # already configured on main). Must use always() so a failed analyze still
+  # reports a red gate instead of a skipped/pending required check.
+  codeql:
+    name: codeql
+    if: always()
+    needs: [analyze]
+    runs-on: ubuntu-latest
+    steps:
+      - name: CodeQL analysis green
+        run: |
+          [ "${{ needs.analyze.result }}" = "success" ] || { echo "analyze failed: ${{ needs.analyze.result }}"; exit 1; }
