@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-08-08
+
 ### Fixed
 
 - Fail-closed escalate→deny no longer invents a synthetic `ReviewDecision`
@@ -18,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   issued the tool call (`request.tool.messageID` / `callID`) before falling
   back to intent-derived evidence.
 - Plugin no longer registers a no-op `tool.execute.after` hook; deprecated
-  `annotateToolResult` remains exported for 1.x API compatibility.
+  `annotateToolResult` remains exported for API compatibility.
 
 ## [1.1.0] - 2026-08-08
 
