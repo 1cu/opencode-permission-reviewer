@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-08-08
+
+### Fixed
+
+- Fail-closed escalate→deny no longer invents a synthetic `ReviewDecision`
+  (`risk_level: high`, `confidence: 1`) or a `reviewerOutcome` when no valid
+  structured decision existed (timeout, invalid output, policy-manual, etc.).
+  Real LLM `escalate` decisions keep `decision.outcome: "escalate"` under
+  fail-closed deny.
+- `ACTION_PURPOSE` now recovers prose from the exact assistant message that
+  issued the tool call (`request.tool.messageID` / `callID`) before falling
+  back to intent-derived evidence.
+- Plugin no longer registers a no-op `tool.execute.after` hook; deprecated
+  `annotateToolResult` remains exported for API compatibility.
+
 ## [1.1.0] - 2026-08-08
 
 Non-interactive fail-closed mode and asymmetric agent feedback, without changing

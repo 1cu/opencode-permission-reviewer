@@ -40,3 +40,16 @@ jobs:
           name: coverage-lcov
           path: coverage/lcov.info
           if-no-files-found: error
+
+  # Stable required-check name for branch protection. Matrix leg names change
+  # when Bun versions drift; this gate does not.
+  ci:
+    name: ci
+    if: always()
+    needs: [check, coverage]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All CI checks green
+        run: |
+          [ "${{ needs.check.result }}" = "success" ] || { echo "check failed: ${{ needs.check.result }}"; exit 1; }
+          [ "${{ needs.coverage.result }}" = "success" ] || { echo "coverage failed: ${{ needs.coverage.result }}"; exit 1; }

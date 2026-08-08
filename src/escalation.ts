@@ -1,8 +1,8 @@
 import type {
   EscalationDisposition,
-  ReviewDecision,
   ReviewExecutionResult,
   ReviewerConfig,
+  ReviewOutcome,
 } from "./types.ts"
 
 /**
@@ -48,7 +48,11 @@ export function resolveEscalationDisposition(
  * pass through unchanged.
  *
  * When converting escalate → deny, the original reason is preserved so the
- * primary agent still receives actionable feedback.
+ * primary agent still receives actionable feedback. The original structured
+ * decision (if any) is kept as-is — never rewritten into a synthetic deny —
+ * so audit can distinguish a real LLM escalate from a fail-safe without a
+ * structured decision. `reviewerOutcome` is only set when a structured
+ * decision actually existed.
  */
 export function applyEscalationDisposition(
   result: ReviewExecutionResult,
@@ -59,42 +63,34 @@ export function applyEscalationDisposition(
   if (result.kind !== "escalate") return result
 
   const disposition = resolveEscalationDisposition(result, config, category)
-  const reviewerOutcome =
-    result.reviewerOutcome ??
-    (result.decision !== undefined ? result.decision.outcome : ("escalate" as const))
+  const reviewerOutcome = resolveReviewerOutcome(result)
 
   if (disposition === "manual") {
     return {
       ...result,
-      reviewerOutcome,
+      ...(reviewerOutcome === undefined ? {} : { reviewerOutcome }),
       escalationDisposition: "manual",
     }
   }
 
   return {
     kind: "deny",
-    decision: result.decision ?? syntheticDenyDecision(result.reason),
     reason: result.reason,
+    ...(result.decision === undefined ? {} : { decision: result.decision }),
     ...(result.reviewSessionID === undefined ? {} : { reviewSessionID: result.reviewSessionID }),
     ...(result.decisionSource === undefined ? {} : { decisionSource: result.decisionSource }),
-    reviewerOutcome,
+    ...(reviewerOutcome === undefined ? {} : { reviewerOutcome }),
     escalationDisposition: "deny",
   }
 }
 
-function syntheticDenyDecision(reason: string): ReviewDecision {
-  const rationale =
-    reason.trim().length >= 3
-      ? reason.trim().slice(0, 2_000)
-      : "Escalation converted to deny by fail-closed enforcement."
-  return {
-    version: 2,
-    outcome: "deny",
-    risk_level: "high",
-    user_authorization: "unknown",
-    scope_alignment: "unknown",
-    evidence_completeness: "unknown",
-    rationale,
-    confidence: 1,
-  }
+/**
+ * Structured reviewer outcome only when one actually existed. Never invent
+ * `escalate` for timeouts, invalid output, policy-manual routes, or other
+ * fail-safes that never produced a valid decision.
+ */
+function resolveReviewerOutcome(result: ReviewExecutionResult): ReviewOutcome | undefined {
+  if (result.reviewerOutcome !== undefined) return result.reviewerOutcome
+  if (result.decision !== undefined) return result.decision.outcome
+  return undefined
 }

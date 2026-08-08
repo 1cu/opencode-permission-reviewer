@@ -402,7 +402,8 @@ export class ReviewCoordinator {
   /**
    * @deprecated No-op. Approvals no longer annotate tool results so they do not
    * contaminate the primary agent context. Kept for public API compatibility;
-   * the hook may still call this. Rationale remains in audit, TUI, and debug.
+   * the plugin no longer registers a host hook that calls this. Rationale
+   * remains in audit, TUI, and debug.
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   annotateToolResult(callID: string, output: { output?: unknown; metadata?: unknown }): void {
