@@ -15,9 +15,20 @@ function readConfigFile(path: string): Record<string, unknown> {
   }
 }
 
+/** Optional override used by unit tests so a developer's personal global config
+ *  cannot leak into loader assertions. Production always uses the real path. */
+let globalConfigPathOverride: string | undefined
+
 /** Path to the global user config. Exposed for testability. */
 export function globalConfigPath(): string {
-  return join(homedir(), ".config", "opencode", "permission-reviewer.jsonc")
+  return (
+    globalConfigPathOverride ?? join(homedir(), ".config", "opencode", "permission-reviewer.jsonc")
+  )
+}
+
+/** Test-only: redirect (or clear) the global config path. */
+export function setGlobalConfigPathForTests(path: string | undefined): void {
+  globalConfigPathOverride = path
 }
 
 /** Path to the project-local config. Exposed for testability. */

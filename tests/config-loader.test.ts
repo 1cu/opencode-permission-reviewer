@@ -1,9 +1,14 @@
-import { describe, expect, test } from "bun:test"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { parseJsonc } from "../src/config/jsonc.ts"
-import { loadResolvedConfig, projectConfigPath, globalConfigPath } from "../src/config/loader.ts"
+import {
+  loadResolvedConfig,
+  projectConfigPath,
+  globalConfigPath,
+  setGlobalConfigPathForTests,
+} from "../src/config/loader.ts"
 import { resolveConfig, DEFAULT_CONFIG } from "../src/config.ts"
 
 describe("JSONC parser", () => {
@@ -46,9 +51,20 @@ describe("JSONC parser", () => {
 })
 
 describe("config loader — trust boundary", () => {
+  // Isolate from the developer's real ~/.config/.../permission-reviewer.jsonc
+  // so personal fail-closed settings cannot leak into loader unit tests.
+  const isolatedGlobal = join(tmpdir(), `reviewer-global-absent-${process.pid}.jsonc`)
+
+  beforeAll(() => {
+    setGlobalConfigPathForTests(isolatedGlobal)
+  })
+  afterAll(() => {
+    setGlobalConfigPathForTests(undefined)
+  })
+
   test("byte-identical to resolveConfig when no files exist", () => {
-    // Use a temp dir with no .opencode/ — the global file also shouldn't
-    // exist in CI. This proves the loader is transparent when no files exist.
+    // Use a temp dir with no .opencode/ and a missing global path so the loader
+    // is transparent when no config files exist.
     const dir = mkdtempSync(join(tmpdir(), "reviewer-cfg-"))
     try {
       const loaded = loadResolvedConfig({ model: "openai/gpt-4" }, dir)
@@ -306,8 +322,15 @@ describe("config loader — trust boundary", () => {
   })
 
   test("path helpers produce expected paths", () => {
-    expect(globalConfigPath()).toContain("permission-reviewer.jsonc")
-    expect(projectConfigPath("/repo")).toBe(join("/repo", ".opencode", "permission-reviewer.jsonc"))
+    setGlobalConfigPathForTests(undefined)
+    try {
+      expect(globalConfigPath()).toContain("permission-reviewer.jsonc")
+      expect(projectConfigPath("/repo")).toBe(
+        join("/repo", ".opencode", "permission-reviewer.jsonc"),
+      )
+    } finally {
+      setGlobalConfigPathForTests(isolatedGlobal)
+    }
   })
 
   test("project config can harden escalationMode to deny but not relax it", () => {

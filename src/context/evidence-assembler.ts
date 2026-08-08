@@ -91,7 +91,7 @@ export async function assembleEvidence(
     (fragment) => fragment.preflightDenial !== undefined,
   )?.preflightDenial
 
-  const actionPurpose = resolveActionPurpose(request, actor.intent)
+  const actionPurpose = resolveActionPurpose(request, actor.intent, messages)
   const purposeOk = actionPurpose.source !== "unavailable"
   const completenessReasons = [...actor.completeness.reasons]
   if (!purposeOk) completenessReasons.push("action purpose unavailable")

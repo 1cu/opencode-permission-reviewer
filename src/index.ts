@@ -34,9 +34,9 @@ export const server: Plugin = async (input, options) => {
       if (!request) return
       runtime.handle(request)
     },
-    "tool.execute.after": async (event, output) => {
-      runtime.annotateToolResult(event.callID, output)
-    },
+    // Approvals no longer annotate tool results. `annotateToolResult` remains
+    // exported as a deprecated no-op for external callers; the host hook is
+    // omitted so it is not invoked after every tool execution for no effect.
     dispose: async () => {
       await runtime.waitForIdle()
     },

@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test"
 import { resolveActionPurpose } from "../src/context/action-purpose.ts"
 import { buildEvidence } from "../src/context.ts"
 import { DEFAULT_CONFIG } from "../src/config.ts"
-import type { IntentContext, PermissionRequest, ReviewEnvelope } from "../src/types.ts"
+import type {
+  IntentContext,
+  MessageWithParts,
+  PermissionRequest,
+  ReviewEnvelope,
+} from "../src/types.ts"
 import { request } from "./helpers.ts"
 
 function intent(partial: Partial<IntentContext> = {}): IntentContext {
@@ -99,6 +104,109 @@ describe("resolveActionPurpose", () => {
     )
     expect(result.source).toBe("unavailable")
     expect(result.text).toBeUndefined()
+  })
+
+  test("recovers purpose text from the assistant message that issued the tool call", () => {
+    const messages: MessageWithParts[] = [
+      {
+        info: { id: "msg_user", role: "user" },
+        parts: [{ type: "text", text: "Please validate the fixture" }],
+      },
+      {
+        info: { id: "msg_1", role: "assistant", agent: "build" },
+        parts: [
+          { type: "text", text: "Checking the live fixture output next." },
+          { type: "tool", tool: "bash", callID: "call_1" },
+        ],
+      },
+    ]
+    const result = resolveActionPurpose(
+      request({ tool: { messageID: "msg_1", callID: "call_1" } }),
+      intent(),
+      messages,
+    )
+    expect(result).toEqual({
+      text: "Checking the live fixture output next.",
+      source: "agent-context",
+      confidence: "medium",
+    })
+  })
+
+  test("tool-message purpose beats intent-derived fallback", () => {
+    const messages: MessageWithParts[] = [
+      {
+        info: { id: "msg_1", role: "assistant" },
+        parts: [
+          { type: "text", text: "Immediate agent reason for this call" },
+          { type: "tool", tool: "bash", callID: "call_1" },
+        ],
+      },
+    ]
+    const result = resolveActionPurpose(
+      request({ tool: { messageID: "msg_1", callID: "call_1" } }),
+      intent({ localSessionIntent: [block("Older local intent that must not win")] }),
+      messages,
+    )
+    expect(result.source).toBe("agent-context")
+    expect(result.text).toContain("Immediate agent reason")
+  })
+
+  test("does not treat user-message text as agent-context purpose", () => {
+    const messages: MessageWithParts[] = [
+      {
+        info: { id: "msg_1", role: "user" },
+        parts: [{ type: "text", text: "User asked to run the check" }],
+      },
+    ]
+    const result = resolveActionPurpose(
+      request({ tool: { messageID: "msg_1", callID: "call_1" } }),
+      intent(),
+      messages,
+    )
+    expect(result.source).toBe("unavailable")
+  })
+
+  test("does not attribute text from a message that only has a different tool call", () => {
+    const messages: MessageWithParts[] = [
+      {
+        info: { id: "msg_1", role: "assistant" },
+        parts: [
+          { type: "text", text: "Reason for a different tool" },
+          { type: "tool", tool: "bash", callID: "call_other" },
+        ],
+      },
+    ]
+    const result = resolveActionPurpose(
+      request({ tool: { messageID: "msg_1", callID: "call_1" } }),
+      intent(),
+      messages,
+    )
+    expect(result.source).toBe("unavailable")
+  })
+
+  test("metadata purpose still beats tool-message text", () => {
+    const messages: MessageWithParts[] = [
+      {
+        info: { id: "msg_1", role: "assistant" },
+        parts: [
+          { type: "text", text: "Prose next to the tool" },
+          { type: "tool", tool: "bash", callID: "call_1" },
+        ],
+      },
+    ]
+    const result = resolveActionPurpose(
+      request({
+        metadata: { command: "printf x", purpose: "Explicit metadata purpose" },
+        tool: { messageID: "msg_1", callID: "call_1" },
+      }),
+      intent(),
+      messages,
+    )
+    expect(result).toEqual({
+      text: "Explicit metadata purpose",
+      source: "agent-context",
+      confidence: "medium",
+    })
   })
 })
 

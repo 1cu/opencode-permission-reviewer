@@ -34,7 +34,9 @@ describe("escalation disposition helper", () => {
     const result = applyEscalationDisposition(escalate(), cfg())
     expect(result.kind).toBe("escalate")
     expect(result.escalationDisposition).toBe("manual")
-    expect(result.reviewerOutcome).toBe("escalate")
+    // No structured decision → no invented reviewerOutcome.
+    expect(result.reviewerOutcome).toBeUndefined()
+    expect(result.decision).toBeUndefined()
   })
 
   test("escalationMode deny converts escalate to deny and preserves reason", () => {
@@ -45,8 +47,23 @@ describe("escalation disposition helper", () => {
     expect(result.kind).toBe("deny")
     expect(result.reason).toBe("low confidence on medium risk")
     expect(result.escalationDisposition).toBe("deny")
+    // Fail-safe without structured decision must not invent risk/confidence.
+    expect(result.reviewerOutcome).toBeUndefined()
+    expect(result.decision).toBeUndefined()
+  })
+
+  test("LLM escalate→deny keeps original decision.outcome escalate", () => {
+    const llmEscalate = escalate({
+      reason: "Ambiguous scope needs a human.",
+      decision: decision("escalate", { rationale: "Ambiguous scope needs a human." }),
+      reviewerOutcome: "escalate",
+    })
+    const result = applyEscalationDisposition(llmEscalate, cfg({ escalationMode: "deny" }))
+    expect(result.kind).toBe("deny")
     expect(result.reviewerOutcome).toBe("escalate")
-    expect(result.decision?.outcome).toBe("deny")
+    expect(result.decision?.outcome).toBe("escalate")
+    expect(result.decision?.rationale).toContain("Ambiguous scope")
+    expect(result.escalationDisposition).toBe("deny")
   })
 
   test("allow and explicit deny pass through unchanged", () => {
@@ -198,6 +215,8 @@ describe("runtime escalationMode deny", () => {
     expect(result.kind).toBe("deny")
     expect(result.reason).toContain("invalid structured output")
     expect(result.escalationDisposition).toBe("deny")
+    expect(result.reviewerOutcome).toBeUndefined()
+    expect(result.decision).toBeUndefined()
     expect(replyBody(client.replies[0]).reply).toBe("reject")
   })
 
@@ -212,6 +231,8 @@ describe("runtime escalationMode deny", () => {
     expect(result.kind).toBe("deny")
     expect(result.reason).toContain("timed out")
     expect(result.escalationDisposition).toBe("deny")
+    expect(result.reviewerOutcome).toBeUndefined()
+    expect(result.decision).toBeUndefined()
     expect(replyBody(client.replies[0]).reply).toBe("reject")
   })
 
@@ -222,6 +243,8 @@ describe("runtime escalationMode deny", () => {
     const result = await harness.runtime.process(request())
     expect(result.kind).toBe("deny")
     expect(result.escalationDisposition).toBe("deny")
+    expect(result.reviewerOutcome).toBeUndefined()
+    expect(result.decision).toBeUndefined()
   })
 
   test("explicit deny stays deny without escalationDisposition", async () => {
@@ -262,24 +285,54 @@ describe("runtime escalationMode deny", () => {
     expect(result.kind).toBe("deny")
     expect(result.reason).toContain("always manual for test")
     expect(result.escalationDisposition).toBe("deny")
+    expect(result.reviewerOutcome).toBeUndefined()
+    expect(result.decision).toBeUndefined()
     expect(client.creates).toHaveLength(0)
     expect(replyBody(client.replies[0]).reply).toBe("reject")
   })
 
   test("audit records reviewerOutcome and escalationDisposition on escalate→deny", async () => {
     const client = new MockClient()
-    client.nextStructured = decision("escalate", { rationale: "needs eyes" })
+    client.nextStructured = decision("escalate", {
+      rationale: "needs eyes",
+      risk_level: "medium",
+      user_authorization: "medium",
+      confidence: 0.95,
+    })
     const harness = runtime(client, { escalationMode: "deny" })
     await harness.runtime.process(request())
     const audits = (harness.ctx as unknown as { auditRecords: Array<Record<string, unknown>> })
       .auditRecords
+    // Final outcome is deny; flattened fields keep the ORIGINAL structured
+    // decision (not a synthetic high/1.0 deny). reviewerOutcome stays escalate.
     expect(audits[0]).toMatchObject({
       schemaVersion: 2,
       outcome: "deny",
       reviewerOutcome: "escalate",
       escalationDisposition: "deny",
       reason: "needs eyes",
+      riskLevel: "medium",
+      confidence: 0.95,
     })
+  })
+
+  test("audit on timeout deny has no invented decision fields or reviewerOutcome", async () => {
+    const client = new MockClient()
+    client.promptImpl = () => new Promise(() => {})
+    const harness = runtime(client, { timeoutMs: 10, escalationMode: "deny" })
+    await harness.runtime.process(request())
+    const audits = (harness.ctx as unknown as { auditRecords: Array<Record<string, unknown>> })
+      .auditRecords
+    expect(audits[0]).toMatchObject({
+      schemaVersion: 2,
+      outcome: "deny",
+      escalationDisposition: "deny",
+      decisionSource: "failure-safe",
+    })
+    expect(audits[0]!.reviewerOutcome).toBeUndefined()
+    expect(audits[0]!.riskLevel).toBeUndefined()
+    expect(audits[0]!.confidence).toBeUndefined()
+    expect(audits[0]!.userAuthorization).toBeUndefined()
   })
 
   test("audit records manual disposition without converting outcome", async () => {
