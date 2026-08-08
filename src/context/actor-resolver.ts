@@ -450,6 +450,9 @@ function assessCompleteness(
   const lineageOk = lineage.depth > 0
   const directOk = intent.directUserIntent.length > 0
   const delegatedOk = intent.delegatedTask.length > 0
+  // purpose is filled later by the evidence assembler; default false here so
+  // callers that only run the resolver still see an explicit flag.
+  const purposeOk = false
   const score = [true, actorOk, lineageOk, directOk, delegatedOk].filter(Boolean).length
   const overall: EvidenceCompleteness["overall"] =
     score >= 4 ? "sufficient" : score >= 2 ? "partial" : "insufficient"
@@ -460,6 +463,7 @@ function assessCompleteness(
     lineage: lineageOk,
     directUserIntent: directOk,
     delegatedTask: delegatedOk,
+    purpose: purposeOk,
     capability: false, // no provider produces capability facts yet
     repositoryState: false, // git evidence exists only as enrichment text today
     referencedCode: false,
@@ -532,6 +536,7 @@ export function unknownResolution(request: PermissionRequest, error: unknown): A
       lineage: false,
       directUserIntent: false,
       delegatedTask: false,
+      purpose: false,
       capability: false,
       repositoryState: false,
       referencedCode: false,

@@ -309,4 +309,80 @@ describe("config loader — trust boundary", () => {
     expect(globalConfigPath()).toContain("permission-reviewer.jsonc")
     expect(projectConfigPath("/repo")).toBe(join("/repo", ".opencode", "permission-reviewer.jsonc"))
   })
+
+  test("project config can harden escalationMode to deny but not relax it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reviewer-cfg-"))
+    try {
+      mkdirSync(join(dir, ".opencode"), { recursive: true })
+      writeFileSync(projectConfigPath(dir), JSON.stringify({ escalationMode: "deny" }))
+      expect(loadResolvedConfig(undefined, dir).escalationMode).toBe("deny")
+
+      writeFileSync(projectConfigPath(dir), JSON.stringify({ escalationMode: "manual" }))
+      expect(loadResolvedConfig({ escalationMode: "deny" }, dir).escalationMode).toBe("deny")
+
+      writeFileSync(projectConfigPath(dir), JSON.stringify({ escalationMode: "auto" }))
+      expect(loadResolvedConfig({ escalationMode: "deny" }, dir).escalationMode).toBe("deny")
+    } finally {
+      rmSync(dir, { recursive: true })
+    }
+  })
+
+  test("project partial riskPolicy cannot wipe trusted failure knobs", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reviewer-cfg-"))
+    try {
+      mkdirSync(join(dir, ".opencode"), { recursive: true })
+      // Project only narrows an allow cell — must not reset onInvalidDecision.
+      writeFileSync(
+        projectConfigPath(dir),
+        JSON.stringify({ riskPolicy: { allow: { medium: ["high"] } } }),
+      )
+      const loaded = loadResolvedConfig(
+        {
+          riskPolicy: {
+            allow: DEFAULT_CONFIG.riskPolicy.allow,
+            minimumConfidence: 0.7,
+            onInvalidDecision: "deny",
+            onReviewerFailure: "deny",
+          },
+        },
+        dir,
+      )
+      expect(loaded.riskPolicy.onInvalidDecision).toBe("deny")
+      expect(loaded.riskPolicy.onReviewerFailure).toBe("deny")
+      expect(loaded.riskPolicy.allow.medium).toEqual(["high"])
+    } finally {
+      rmSync(dir, { recursive: true })
+    }
+  })
+
+  test("project can harden onInvalidDecision to deny but not relax trusted deny", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reviewer-cfg-"))
+    try {
+      mkdirSync(join(dir, ".opencode"), { recursive: true })
+      writeFileSync(
+        projectConfigPath(dir),
+        JSON.stringify({ riskPolicy: { onInvalidDecision: "deny" } }),
+      )
+      expect(loadResolvedConfig(undefined, dir).riskPolicy.onInvalidDecision).toBe("deny")
+
+      writeFileSync(
+        projectConfigPath(dir),
+        JSON.stringify({ riskPolicy: { onInvalidDecision: "manual" } }),
+      )
+      const loaded = loadResolvedConfig(
+        {
+          riskPolicy: {
+            allow: DEFAULT_CONFIG.riskPolicy.allow,
+            minimumConfidence: 0.7,
+            onInvalidDecision: "deny",
+            onReviewerFailure: "manual",
+          },
+        },
+        dir,
+      )
+      expect(loaded.riskPolicy.onInvalidDecision).toBe("deny")
+    } finally {
+      rmSync(dir, { recursive: true })
+    }
+  })
 })

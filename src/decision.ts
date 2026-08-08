@@ -55,11 +55,14 @@ export function enforceDecision(
   decision: ReviewDecision,
   config: ReviewerConfig,
 ): ReviewExecutionResult {
+  const reviewerOutcome = decision.outcome
+
   if (decision.risk_level === "critical" && decision.outcome !== "deny") {
     return {
       kind: "escalate",
       decision,
       reason: "Reviewer returned a non-denial for critical risk; manual review required.",
+      reviewerOutcome,
     }
   }
 
@@ -68,6 +71,7 @@ export function enforceDecision(
       kind: "escalate",
       decision,
       reason: `Reviewer confidence ${decision.confidence.toFixed(2)} is below ${config.confidenceThreshold.toFixed(2)}.`,
+      reviewerOutcome,
     }
   }
 
@@ -83,6 +87,7 @@ export function enforceDecision(
         kind: "escalate",
         decision,
         reason: `Reviewer allow for ${risk} risk with ${auth} user authorization; manual review required.`,
+        reviewerOutcome,
       }
     }
 
@@ -94,6 +99,7 @@ export function enforceDecision(
         decision,
         reason:
           "Reviewer judged the request misaligned with the stated intent; manual review required.",
+        reviewerOutcome,
       }
     }
 
@@ -107,15 +113,16 @@ export function enforceDecision(
         kind: "escalate",
         decision,
         reason: `Reviewer judged evidence insufficient for ${risk} risk; manual review required.`,
+        reviewerOutcome,
       }
     }
 
-    return { kind: "allow", decision, reason: decision.rationale }
+    return { kind: "allow", decision, reason: decision.rationale, reviewerOutcome }
   }
   if (decision.outcome === "deny") {
-    return { kind: "deny", decision, reason: decision.rationale }
+    return { kind: "deny", decision, reason: decision.rationale, reviewerOutcome }
   }
-  return { kind: "escalate", decision, reason: decision.rationale }
+  return { kind: "escalate", decision, reason: decision.rationale, reviewerOutcome }
 }
 
 export const DECISION_SCHEMA_VERSION = 2

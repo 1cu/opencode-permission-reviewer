@@ -200,6 +200,28 @@ reasons.
 }
 ```
 
+## Escalation disposition
+
+After the reviewer, declarative policy, gates, or fail-safe produce an internal
+`allow | deny | escalate`, a single enforcement boundary disposes escalations:
+
+| Config                         | Effect                                                              |
+| ------------------------------ | ------------------------------------------------------------------- |
+| `escalationMode: "manual"`     | Default. Internal escalate is left for a human (interactive).       |
+| `escalationMode: "deny"`       | Every final escalate becomes a reject with the original reason.     |
+| `riskPolicy.onInvalidDecision` | `"manual"` (default) or `"deny"` — only invalid structured output.  |
+| `riskPolicy.onReviewerFailure` | `"manual"` (default) or `"deny"` — only timeout/transport failures. |
+
+Precedence is monotonic: any `deny` wins; nothing can relax a more restrictive
+setting. `manual-superseded` (human already answered) is never converted.
+
+Audit fields (additive, `schemaVersion` stays `2`):
+
+- `reviewerOutcome` — structured LLM outcome before gates/disposition (absent
+  when no valid decision was produced).
+- `escalationDisposition` — `"manual"` or `"deny"` when an internal escalate was
+  disposed; absent for explicit allow/deny.
+
 ## Inspecting your policy
 
 - **`opencode-permission-reviewer doctor`** — prints the resolved mode,

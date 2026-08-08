@@ -21,6 +21,7 @@ const MIN_GLOBAL_LINE_PCT = 90
 // behavioral regression, not a cosmetic gap.
 const CRITICAL_MODULES: ReadonlySet<string> = new Set([
   "src/decision.ts",
+  "src/escalation.ts",
   "src/policy.ts",
   "src/policy/policy-engine.ts",
   "src/emergency-brake.ts",

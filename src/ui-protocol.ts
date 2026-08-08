@@ -1,4 +1,9 @@
-import type { ActorProfile, PermissionRequest, ReviewDecision } from "./types.ts"
+import type {
+  ActorProfile,
+  EscalationDisposition,
+  PermissionRequest,
+  ReviewDecision,
+} from "./types.ts"
 
 export const UI_COMMAND_PREFIX = "opencode-permission-reviewer.status."
 // Time to wait for the server's first "reviewing" ack after permission.asked.
@@ -22,6 +27,11 @@ export interface ReviewUiStatus {
   timeoutMs: number
   reason?: string
   decision?: ReviewDecision
+  /**
+   * When phase is `denied` and this is `"deny"`, the block came from fail-closed
+   * escalation disposition rather than an explicit reviewer/policy deny.
+   */
+  escalationDisposition?: EscalationDisposition
   /** Resolved actor (absent on the initial "reviewing" phase, before context
    *  collection completes). */
   actorName?: string
@@ -60,6 +70,7 @@ export function createUiStatus(
     timeoutMs: number
     reason?: string
     decision?: ReviewDecision
+    escalationDisposition?: EscalationDisposition
     emittedAt?: number
     actorName?: string
     actorProfile?: ActorProfile
@@ -78,6 +89,9 @@ export function createUiStatus(
     timeoutMs: options.timeoutMs,
     ...(options.reason === undefined ? {} : { reason: boundedText(options.reason, 2_000) }),
     ...(options.decision === undefined ? {} : { decision: options.decision }),
+    ...(options.escalationDisposition === undefined
+      ? {}
+      : { escalationDisposition: options.escalationDisposition }),
     ...(options.actorName === undefined ? {} : { actorName: boundedText(options.actorName, 100) }),
     ...(options.actorProfile === undefined ? {} : { actorProfile: options.actorProfile }),
   }
@@ -129,6 +143,13 @@ export function parseUiStatus(value: unknown): ReviewUiStatus | undefined {
     return
   if (value.reason !== undefined && typeof value.reason !== "string") return
   if (value.decision !== undefined && !isDecision(value.decision)) return
+  if (
+    value.escalationDisposition !== undefined &&
+    value.escalationDisposition !== "manual" &&
+    value.escalationDisposition !== "deny"
+  ) {
+    return
+  }
   if (value.actorName !== undefined && typeof value.actorName !== "string") return
   if (
     value.actorProfile !== undefined &&

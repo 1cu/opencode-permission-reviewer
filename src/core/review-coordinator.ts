@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto"
 import type {
   ActorContext,
-  ApprovedAnnotation,
   CapabilityAssessment,
   DecisionSource,
   EvidenceCompleteness,
@@ -41,16 +40,9 @@ import {
 } from "../opencode/transport.ts"
 import type { EvidenceProvider } from "../evidence/provider.ts"
 import { assembleEvidence, defaultEvidenceProviders } from "../context/evidence-assembler.ts"
+import { applyEscalationDisposition, type EscalationCategory } from "../escalation.ts"
 
 type Logger = (message: string, details?: unknown) => void
-
-function approvedNote(decisions: ApprovedAnnotation[]): string {
-  const lines = decisions.map(({ decision }) => {
-    const confidence = `${Math.round(decision.confidence * 100)}%`
-    return `- ${decision.risk_level} risk, ${decision.user_authorization} authorization, ${confidence} confidence: ${decision.rationale}`
-  })
-  return `[Automatic permission review approved this action once]\n${lines.join("\n")}`
-}
 
 /** Stable hash of the canonical request so audit records for the same action
  *  correlate across runs. Patterns are sorted so event order does not matter.
@@ -67,14 +59,13 @@ function actionHash(request: PermissionRequest): string {
 
 /**
  * Owns the review lifecycle for permission requests: orchestration, the
- * supersede/annotation state machines, and the model call. The adapter
- * (transport) and the evidence providers are injected so this class stays
- * focused on ordering and races.
+ * supersede state machine, and the model call. The adapter (transport) and the
+ * evidence providers are injected so this class stays focused on ordering and
+ * races.
  */
 export class ReviewCoordinator {
   private readonly pending = new Map<string, Promise<unknown>>()
   private readonly reviewerSessions = new Set<string>()
-  private readonly approvedByCall = new Map<string, ApprovedAnnotation[]>()
   private readonly sshAuditByRequest = new Map<string, SshAuditSummary[]>()
   // Bridge for the resolved actor context, mirroring sshAuditByRequest: the
   // envelope holds it for the reviewer prompt, audit() runs after the model
@@ -97,9 +88,9 @@ export class ReviewCoordinator {
   /**
    * Request IDs that a human (or any other reply source) resolved while the
    * automatic review was still in flight. The in-flight review must then give
-   * up silently: no `emit`, no `reply`, and no `annotateToolResult`. OpenCode
-   * resolves a request on a first-writer basis, so a late programmatic reply
-   * returns 404 PermissionNotFoundError — we treat that the same way.
+   * up silently: no `emit`, no `reply`. OpenCode resolves a request on a
+   * first-writer basis, so a late programmatic reply returns 404
+   * PermissionNotFoundError — we treat that the same way.
    */
   private readonly resolvedManually = new Set<string>()
   private readonly log: Logger
@@ -133,10 +124,20 @@ export class ReviewCoordinator {
         // would re-prompt the user for a request the server has already closed.
         if (this.isSuperseded(request)) return
         const reason = error instanceof Error ? error.message : String(error)
-        await this.emit(request, "manual", reason)
-        this.log("review failed; leaving request for manual approval", {
+        const disposed = applyEscalationDisposition(
+          {
+            kind: "escalate",
+            reason,
+            decisionSource: "failure-safe",
+          },
+          this.config,
+          "general",
+        )
+        await this.applyDisposition(request, disposed)
+        this.log("review failed; leaving request for manual approval or fail-closed deny", {
           requestID: request.id,
           error: reason,
+          kind: disposed.kind,
         })
       })
       .finally(() => {
@@ -154,14 +155,16 @@ export class ReviewCoordinator {
       await this.audit(request, result, startedAt)
       return result
     } catch (error) {
-      await this.audit(
-        request,
+      const disposed = applyEscalationDisposition(
         {
           kind: "escalate",
           reason: error instanceof Error ? error.message : String(error),
+          decisionSource: "failure-safe",
         },
-        startedAt,
+        this.config,
+        "general",
       )
+      await this.audit(request, disposed, startedAt)
       throw error
     } finally {
       this.sshAuditByRequest.delete(request.id)
@@ -194,13 +197,64 @@ export class ReviewCoordinator {
     request: PermissionRequest,
     reason: string,
     decision?: ReviewDecision,
+    extras?: Pick<ReviewExecutionResult, "reviewerOutcome" | "escalationDisposition">,
   ): Promise<ReviewExecutionResult | undefined> {
     if (this.isSuperseded(request)) return this.supersedeResult()
-    await this.emit(request, "denied", reason, decision)
+    await this.emit(request, "denied", reason, decision, extras?.escalationDisposition)
     if (this.isSuperseded(request)) return this.supersedeResult()
     const accepted = await this.safeReply(request, "reject", reason)
     if (!accepted) return this.supersedeResult()
     return undefined
+  }
+
+  /**
+   * Apply a fully disposed result (allow / deny / escalate) to UI + reply.
+   * This is the single side-effect boundary after logical disposition.
+   */
+  private async applyDisposition(
+    request: PermissionRequest,
+    result: ReviewExecutionResult,
+  ): Promise<ReviewExecutionResult> {
+    if (this.isSuperseded(request)) return this.supersedeResult()
+
+    if (result.kind === "allow") {
+      await this.emit(
+        request,
+        "approved",
+        result.reason,
+        result.decision,
+        result.escalationDisposition,
+      )
+      const accepted = await this.safeReply(request, "once")
+      if (!accepted) return this.supersedeResult()
+      return result
+    }
+
+    if (result.kind === "deny") {
+      const superseded = await this.denyAndReply(request, result.reason, result.decision, {
+        ...(result.reviewerOutcome === undefined
+          ? {}
+          : { reviewerOutcome: result.reviewerOutcome }),
+        ...(result.escalationDisposition === undefined
+          ? {}
+          : { escalationDisposition: result.escalationDisposition }),
+      })
+      if (superseded) return superseded
+      return result
+    }
+
+    // Escalate → leave for human. Do not reply.
+    if (this.isSuperseded(request)) return this.supersedeResult()
+    await this.emit(request, "manual", result.reason, result.decision, result.escalationDisposition)
+    this.log("review escalated to user", { requestID: request.id, reason: result.reason })
+    return result
+  }
+
+  private disposeEscalate(
+    result: ReviewExecutionResult,
+    category: EscalationCategory = "general",
+  ): ReviewExecutionResult {
+    return applyEscalationDisposition(result, this.config, category)
   }
 
   private async processRequest(request: PermissionRequest): Promise<ReviewExecutionResult> {
@@ -218,9 +272,12 @@ export class ReviewCoordinator {
         rationale: reason,
         confidence: 1,
       }
-      const superseded = await this.denyAndReply(request, reason, decision)
-      if (superseded) return superseded
-      return { kind: "deny", reason, decision, decisionSource: "emergency-brake" }
+      return await this.applyDisposition(request, {
+        kind: "deny",
+        reason,
+        decision,
+        decisionSource: "emergency-brake",
+      })
     }
 
     const brake = emergencyBrakeReason(request)
@@ -235,9 +292,12 @@ export class ReviewCoordinator {
         rationale: brake,
         confidence: 1,
       }
-      const superseded = await this.denyAndReply(request, brake, decision)
-      if (superseded) return superseded
-      return { kind: "deny", reason: brake, decision, decisionSource: "emergency-brake" }
+      return await this.applyDisposition(request, {
+        kind: "deny",
+        reason: brake,
+        decision,
+        decisionSource: "emergency-brake",
+      })
     }
 
     const envelope = await this.collectEnvelope(request)
@@ -252,14 +312,12 @@ export class ReviewCoordinator {
         rationale: envelope.preflightDenial,
         confidence: 1,
       }
-      const superseded = await this.denyAndReply(request, envelope.preflightDenial, decision)
-      if (superseded) return superseded
-      return {
+      return await this.applyDisposition(request, {
         kind: "deny",
         reason: envelope.preflightDenial,
         decision,
         decisionSource: "deterministic-policy",
-      }
+      })
     }
     // A manual reply arriving during context collection (transcript, git, ssh)
     // supersedes the review before we spend a model call on it.
@@ -279,8 +337,12 @@ export class ReviewCoordinator {
     if (this.config.enforcementMode === "enforce") {
       if (policyTrace.finalRoute === "manual") {
         const reason = `Declarative policy route: manual. ${policyTrace.matchedRules.map((m) => m.reason).join("; ")}`
-        await this.emit(request, "manual", reason)
-        return { kind: "escalate", reason, decisionSource: "deterministic-policy" }
+        const disposed = this.disposeEscalate({
+          kind: "escalate",
+          reason,
+          decisionSource: "deterministic-policy",
+        })
+        return await this.applyDisposition(request, disposed)
       }
       if (policyTrace.finalRoute === "deny") {
         const reason = `Declarative policy route: deny. ${policyTrace.matchedRules.map((m) => m.reason).join("; ")}`
@@ -294,72 +356,28 @@ export class ReviewCoordinator {
           rationale: reason,
           confidence: 1,
         }
-        const superseded = await this.denyAndReply(request, reason, decision)
-        if (superseded) return superseded
-        return {
+        return await this.applyDisposition(request, {
           kind: "deny",
           reason,
           decision,
           decisionSource: "deterministic-policy",
-        }
+        })
       }
     }
 
-    const reviewed = await this.runReviewer(envelope)
-
-    if (reviewed.kind === "allow" && reviewed.decision) {
-      // A manual reply arriving during the model call supersedes the review:
-      // do NOT stage an annotation or reply, and do NOT emit a UI phase.
-      if (this.isSuperseded(request)) return this.supersedeResult()
-      let annotation: ApprovedAnnotation | undefined
-      if (request.tool?.callID) {
-        const current = this.approvedByCall.get(request.tool.callID) ?? []
-        annotation = {
-          requestID: request.id,
-          sessionID: request.sessionID,
-          decision: reviewed.decision,
-        }
-        current.push(annotation)
-        this.approvedByCall.set(request.tool.callID, current)
-      }
-      try {
-        await this.emit(request, "approved", reviewed.reason, reviewed.decision)
-        const accepted = await this.safeReply(request, "once")
-        if (!accepted) {
-          // Request was resolved by someone else; roll back the annotation.
-          if (request.tool?.callID && annotation) {
-            const current = this.approvedByCall.get(request.tool.callID) ?? []
-            const remaining = current.filter((item) => item !== annotation)
-            if (remaining.length === 0) this.approvedByCall.delete(request.tool.callID)
-            else this.approvedByCall.set(request.tool.callID, remaining)
-          }
-          return this.supersedeResult()
-        }
-      } catch (error) {
-        if (request.tool?.callID && annotation) {
-          const current = this.approvedByCall.get(request.tool.callID) ?? []
-          const remaining = current.filter((item) => item !== annotation)
-          if (remaining.length === 0) this.approvedByCall.delete(request.tool.callID)
-          else this.approvedByCall.set(request.tool.callID, remaining)
-        }
-        throw error
-      }
-      return reviewed
-    }
-
-    if (reviewed.kind === "deny") {
-      const superseded = await this.denyAndReply(request, reviewed.reason, reviewed.decision)
-      if (superseded) return superseded
-      return reviewed
-    }
-
-    // Escalate (low confidence, invalid output, timeout, …). A manual reply
-    // arriving during the model call supersedes here too: do not emit a "manual"
-    // phase that would resurrect the request in the TUI after the human acted.
     if (this.isSuperseded(request)) return this.supersedeResult()
-    await this.emit(request, "manual", reviewed.reason, reviewed.decision)
-    this.log("review escalated to user", { requestID: request.id, reason: reviewed.reason })
-    return reviewed
+    const reviewed = await this.runReviewer(envelope)
+    if (this.isSuperseded(request)) return this.supersedeResult()
+
+    // runReviewer already applied category-specific knobs (invalid-decision /
+    // reviewer-failure) and stamps escalationDisposition when it does. Remaining
+    // escalate results (LLM escalate, gates) get the general disposition here.
+    const disposed =
+      reviewed.kind === "escalate" && reviewed.escalationDisposition === undefined
+        ? this.disposeEscalate(reviewed, "general")
+        : reviewed
+
+    return await this.applyDisposition(request, disposed)
   }
 
   handlePermissionReply(event: unknown): void {
@@ -372,17 +390,6 @@ export class ReviewCoordinator {
         : undefined
     if (!properties || typeof properties.sessionID !== "string") return
 
-    // Drop approval annotations when the human rejects the session's tool calls.
-    if (properties.reply === "reject") {
-      for (const [callID, annotations] of this.approvedByCall) {
-        const remaining = annotations.filter(
-          (annotation) => annotation.sessionID !== properties.sessionID,
-        )
-        if (remaining.length === 0) this.approvedByCall.delete(callID)
-        else if (remaining.length !== annotations.length) this.approvedByCall.set(callID, remaining)
-      }
-    }
-
     // Any terminal reply (once | always | reject) to a request we are still
     // reviewing means the in-flight review is now superseded. OpenCode always
     // carries requestID (verified against the SDK V2 contract), so we key off
@@ -392,27 +399,14 @@ export class ReviewCoordinator {
     }
   }
 
+  /**
+   * @deprecated No-op. Approvals no longer annotate tool results so they do not
+   * contaminate the primary agent context. Kept for public API compatibility;
+   * the hook may still call this. Rationale remains in audit, TUI, and debug.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   annotateToolResult(callID: string, output: { output?: unknown; metadata?: unknown }): void {
-    const annotations = this.approvedByCall.get(callID)
-    if (!annotations?.length) return
-    this.approvedByCall.delete(callID)
-
-    const note = approvedNote(annotations)
-    if (typeof output.output === "string") {
-      output.output = `${note}\n\n${output.output}`
-    } else {
-      output.output = `${note}\n\n${JSON.stringify(output.output)}`
-    }
-    const metadata =
-      typeof output.metadata === "object" && output.metadata !== null
-        ? (output.metadata as Record<string, unknown>)
-        : {}
-    metadata.approvalReviewer = annotations.map((annotation) => ({
-      requestID: annotation.requestID,
-      sessionID: annotation.sessionID,
-      ...annotation.decision,
-    }))
-    output.metadata = metadata
+    // Intentionally empty — asymmetric feedback: allow is silent to the agent.
   }
 
   private async collectEnvelope(request: PermissionRequest): Promise<ReviewEnvelope> {
@@ -477,6 +471,10 @@ export class ReviewCoordinator {
       ...(warnings.length === 0 ? {} : { warnings }),
       ...(timings === undefined ? {} : { timings }),
       ...(evidence === undefined ? {} : { evidenceCompleteness: evidence.overall }),
+      ...(result.reviewerOutcome === undefined ? {} : { reviewerOutcome: result.reviewerOutcome }),
+      ...(result.escalationDisposition === undefined
+        ? {}
+        : { escalationDisposition: result.escalationDisposition }),
       ...(decision === undefined
         ? {}
         : {
@@ -614,12 +612,16 @@ export class ReviewCoordinator {
       const data = responseData(response, "session.prompt")
       const parsed = parseDecision(extractStructured(data))
       if (!parsed) {
-        return {
-          kind: "escalate",
-          reason: "Reviewer returned missing or invalid structured output.",
-          reviewSessionID,
-          decisionSource: "failure-safe",
-        }
+        return applyEscalationDisposition(
+          {
+            kind: "escalate",
+            reason: "Reviewer returned missing or invalid structured output.",
+            reviewSessionID,
+            decisionSource: "failure-safe",
+          },
+          this.config,
+          "invalid-decision",
+        )
       }
       return {
         ...enforceDecision(parsed, this.config),
@@ -627,12 +629,16 @@ export class ReviewCoordinator {
         decisionSource: "llm-reviewer",
       }
     } catch (error) {
-      return {
-        kind: "escalate",
-        reason: error instanceof Error ? error.message : String(error),
-        ...(reviewSessionID === undefined ? {} : { reviewSessionID }),
-        decisionSource: "failure-safe",
-      }
+      return applyEscalationDisposition(
+        {
+          kind: "escalate",
+          reason: error instanceof Error ? error.message : String(error),
+          ...(reviewSessionID === undefined ? {} : { reviewSessionID }),
+          decisionSource: "failure-safe",
+        },
+        this.config,
+        "reviewer-failure",
+      )
     } finally {
       if (reviewSessionID !== undefined) {
         this.reviewerSessions.delete(reviewSessionID)
@@ -691,6 +697,7 @@ export class ReviewCoordinator {
     phase: ReviewUiStatus["phase"],
     reason?: string,
     decision?: ReviewDecision,
+    escalationDisposition?: ReviewExecutionResult["escalationDisposition"],
   ): Promise<void> {
     if (!this.ctx.publishUiStatus) return
     const actor = this.actorByRequest.get(request.id)
@@ -700,6 +707,7 @@ export class ReviewCoordinator {
       timeoutMs: this.config.timeoutMs,
       ...(reason === undefined ? {} : { reason }),
       ...(decision === undefined ? {} : { decision }),
+      ...(escalationDisposition === undefined ? {} : { escalationDisposition }),
       ...(actor?.agentName.value === undefined ? {} : { actorName: actor.agentName.value }),
       ...(actor === undefined ? {} : { actorProfile: actor.profile.value }),
     })

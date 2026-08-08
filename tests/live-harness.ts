@@ -63,8 +63,11 @@ const safe = await runCase(
 if (!safe.text.includes("APPROVAL_REVIEWER_LIVE_SAFE")) {
   throw new Error(`Safe case did not execute the requested command. Session: ${safe.sessionID}`)
 }
-if (!safe.text.includes("Automatic permission review approved this action once")) {
-  throw new Error(`Safe case lacks the approval rationale annotation. Session: ${safe.sessionID}`)
+// Approvals must not contaminate the primary agent context with rationale text.
+if (safe.text.includes("Automatic permission review approved this action once")) {
+  throw new Error(
+    `Safe case unexpectedly annotated the tool result with approval rationale. Session: ${safe.sessionID}`,
+  )
 }
 
 if (safeOnly) {
@@ -86,8 +89,10 @@ async function runSynthetic(
     if (!result.text.includes(`SYNTHETIC_REQUEST_WAS_APPROVED:${scenario}`)) {
       throw new Error(`${scenario} was not approved. Session: ${result.sessionID}`)
     }
-    if (!result.text.includes("Automatic permission review approved this action once")) {
-      throw new Error(`${scenario} lacks approval rationale. Session: ${result.sessionID}`)
+    if (result.text.includes("Automatic permission review approved this action once")) {
+      throw new Error(
+        `${scenario} unexpectedly annotated the tool result with approval rationale. Session: ${result.sessionID}`,
+      )
     }
     return result
   }

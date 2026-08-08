@@ -46,6 +46,10 @@ function ReviewPanel(props: {
       return { color: theme().success, icon: "✓", title: "Review approved" }
     }
     if (props.status.phase === "denied") {
+      // Fail-closed escalate→deny is distinct from an explicit reviewer/policy deny.
+      if (props.status.escalationDisposition === "deny") {
+        return { color: theme().error, icon: "✕", title: "Review blocked (fail-closed)" }
+      }
       return { color: theme().error, icon: "✕", title: "Review blocked" }
     }
     return {

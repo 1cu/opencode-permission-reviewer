@@ -3,6 +3,10 @@ export type UserAuthorization = "high" | "medium" | "low" | "unknown"
 export type ReviewOutcome = "allow" | "deny" | "escalate"
 export type ScopeAlignment = "aligned" | "partial" | "misaligned" | "unknown"
 export type EvidenceSufficiency = "sufficient" | "partial" | "insufficient" | "unknown"
+/** How final escalations are disposed after reviewer/policy/fail-safe produce them. */
+export type EscalationMode = "manual" | "deny"
+/** Effective disposition applied to an internal escalate result. */
+export type EscalationDisposition = "manual" | "deny"
 
 export interface ReviewDecision {
   /** Structured-decision schema version. Always 2 for the current schema. */
@@ -123,8 +127,15 @@ export interface ReviewerConfig {
   policy?: string
   debug: boolean
   /** When "observe", actor evidence is collected and audited but never enforces
-   *  new gates; "enforce" is reserved for a later policy-engine release. */
+   *  new gates; "enforce" applies declarative policy routes. */
   enforcementMode: "observe" | "enforce"
+  /**
+   * How internal `escalate` results are disposed before UI/reply.
+   * - `manual` (default): leave the request for a human (interactive mode).
+   * - `deny`: convert every final escalation into a reject with rationale
+   *   (non-interactive fail-closed). Never relaxes an explicit deny.
+   */
+  escalationMode: EscalationMode
   /** Max hops when walking session parents (default 8). */
   maxSessionDepth: number
   /** Max parent sessions fetched during lineage traversal. */
@@ -168,6 +179,8 @@ export interface ReviewEnvelope {
   timings?: { contextMs?: number; enrichmentMs?: number }
   /** The parsed command reused across evidence providers. */
   parsedCommand?: ParsedCommand
+  /** Operational purpose of the pending action (evidence, never authorization). */
+  actionPurpose?: ActionPurpose
 }
 
 /** Which layer produced the final decision for a request. Threaded into the
@@ -205,6 +218,18 @@ export interface ReviewAuditRecord {
    *  decision). Absent when no reviewer decision was reached. */
   scopeAlignment?: ScopeAlignment
   confidence?: number
+  /**
+   * Structured outcome emitted by the reviewer LLM before gates/disposition.
+   * Absent when no valid structured decision was produced (brake, policy,
+   * failure-safe, supersede).
+   */
+  reviewerOutcome?: ReviewOutcome
+  /**
+   * How an internal escalate was disposed. Present only when the logical result
+   * was escalate (or a gate converted allow→escalate) and enforcement chose
+   * manual or deny. Absent for explicit deny, allow, and manual-superseded.
+   */
+  escalationDisposition?: EscalationDisposition
   /** The reviewer model used for this request (config.model). */
   reviewerModel?: string
   /** Per-phase timings. Absent on legacy v1 records and on deterministic paths
@@ -283,6 +308,17 @@ export interface ReviewExecutionResult {
   reviewSessionID?: string
   /** Which layer produced this result; threaded into the audit record. */
   decisionSource?: DecisionSource
+  /**
+   * Structured outcome from the reviewer LLM before gates/disposition.
+   * Absent when no valid structured decision was produced.
+   */
+  reviewerOutcome?: ReviewOutcome
+  /**
+   * How an internal escalate was disposed at the enforcement boundary.
+   * Absent when the result was never an escalate (explicit allow/deny) or when
+   * the request was already answered manually (`manual-superseded`).
+   */
+  escalationDisposition?: EscalationDisposition
 }
 
 // ---------------------------------------------------------------------------
@@ -392,11 +428,24 @@ export interface EvidenceCompleteness {
   lineage: boolean
   directUserIntent: boolean
   delegatedTask: boolean
+  /** Whether a non-unavailable ACTION_PURPOSE was recovered. */
+  purpose: boolean
   capability: boolean
   repositoryState: boolean
   referencedCode: boolean
   reasons: string[]
   overall: "sufficient" | "partial" | "insufficient"
+}
+
+/**
+ * Operational purpose of the pending action — what the agent appears to be
+ * trying to accomplish. This is untrusted evidence: it never demonstrates
+ * user authorization by itself.
+ */
+export interface ActionPurpose {
+  text?: string
+  source: "agent-context" | "intent-derived" | "unavailable"
+  confidence: EvidenceConfidence
 }
 
 // ---------------------------------------------------------------------------

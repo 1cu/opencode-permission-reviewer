@@ -1,5 +1,6 @@
 import type {
   ActorProfile,
+  EscalationMode,
   PolicyRule,
   RiskPolicy,
   RepositoryTrust,
@@ -38,6 +39,7 @@ export const DEFAULT_CONFIG: ReviewerConfig = {
   audit: true,
   debug: false,
   enforcementMode: "observe",
+  escalationMode: "manual",
   maxSessionDepth: 8,
   maxParentSessions: 8,
   actorProfiles: {},
@@ -80,15 +82,18 @@ function resolveActorProfiles(value: unknown): Record<string, ActorProfile> {
 const VALID_AUTH = new Set(["high", "medium", "low", "unknown"])
 
 /** Parse a risk×authorization matrix. Invalid or partial entries fall back to
- *  the conservative default. Only the `allow` sub-object is user-configurable;
- *  `minimumConfidence` mirrors `confidenceThreshold` to keep them in sync. */
+ *  the conservative default. Failure-mode knobs only accept the stricter
+ *  `"deny"` override; anything else keeps the default `"manual"`. */
 function resolveRiskPolicy(value: unknown): RiskPolicy {
-  if (typeof value !== "object" || value === null) return DEFAULT_RISK_POLICY
+  if (typeof value !== "object" || value === null)
+    return { ...DEFAULT_RISK_POLICY, allow: { ...DEFAULT_RISK_POLICY.allow } }
   const src = value as Record<string, unknown>
   const allowSrc = typeof src.allow === "object" && src.allow !== null ? src.allow : {}
   const merged: RiskPolicy = {
     allow: { ...DEFAULT_RISK_POLICY.allow },
     minimumConfidence: DEFAULT_RISK_POLICY.minimumConfidence,
+    // Prefer an explicit deny from either the field or a pre-clamped trusted
+    // baseline (loader may have already hardened the knob).
     onInvalidDecision:
       src.onInvalidDecision === "deny" ? "deny" : DEFAULT_RISK_POLICY.onInvalidDecision,
     onReviewerFailure:
@@ -106,6 +111,10 @@ function resolveRiskPolicy(value: unknown): RiskPolicy {
     merged.minimumConfidence = Math.min(1, Math.max(0.5, src.minimumConfidence))
   }
   return merged
+}
+
+function resolveEscalationMode(value: unknown): EscalationMode {
+  return value === "deny" ? "deny" : "manual"
 }
 
 function resolveRepositoryTrust(value: unknown): RepositoryTrust {
@@ -254,6 +263,7 @@ export function resolveConfig(options: Record<string, unknown> | undefined): Rev
     debug: typeof source.debug === "boolean" ? source.debug : DEFAULT_CONFIG.debug,
     enforcementMode:
       source.enforcementMode === "enforce" ? "enforce" : DEFAULT_CONFIG.enforcementMode,
+    escalationMode: resolveEscalationMode(source.escalationMode),
     maxSessionDepth: boundedInteger(source.maxSessionDepth, DEFAULT_CONFIG.maxSessionDepth, 1, 32),
     maxParentSessions: boundedInteger(
       source.maxParentSessions,

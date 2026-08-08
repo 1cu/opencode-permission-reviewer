@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-08
+
+Non-interactive fail-closed mode and asymmetric agent feedback, without changing
+the default interactive behavior.
+
+### Added
+
+- `escalationMode: "manual" | "deny"` (default `manual`). In `deny` mode every
+  final internal escalation is converted to a reject with the original reason,
+  so autonomous agents can run without human prompts while remaining fail-closed.
+- Wired `riskPolicy.onInvalidDecision` and `riskPolicy.onReviewerFailure` so
+  they harden invalid structured output and reviewer transport/timeout failures
+  respectively (under `escalationMode: "manual"`). `escalationMode: "deny"`
+  hardens every escalate path globally. Restrictive settings only block more.
+- Central escalation disposition boundary (`applyEscalationDisposition`) applied
+  after reviewer/policy/fail-safe produce `allow | deny | escalate`.
+  `manual-superseded` is never converted.
+- `ACTION_PURPOSE` evidence section in the reviewer prompt (agent-context →
+  intent-derived → unavailable). Never invented; does not prove authorization.
+- Additive audit/UI fields `reviewerOutcome` and `escalationDisposition` so
+  reports and the TUI can distinguish an explicit deny from fail-closed
+  escalate→deny (`schemaVersion` stays `2`).
+- Trust-boundary clamps for `escalationMode` and risk-policy failure knobs
+  (project config can only harden, never relax a trusted deny).
+
+### Changed
+
+- Approvals no longer annotate tool results. Allow is silent to the primary
+  agent; deny still returns actionable feedback. `annotateToolResult` remains
+  as a deprecated no-op for 1.x API compatibility.
+- Reviewer system prompt version bumped to `2.1.0` (ACTION_PURPOSE guidance).
+  Structured decision schema stays at version `2`.
+
+### Fixed
+
+- Partial project `riskPolicy` objects no longer wipe trusted
+  `onInvalidDecision` / `onReviewerFailure` values back to defaults.
+
 ## [1.0.0] - 2026-08-07
 
 The first stable release. The public configuration schema, the audit schema

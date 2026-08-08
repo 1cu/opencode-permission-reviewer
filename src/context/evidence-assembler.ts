@@ -3,6 +3,7 @@ import { buildIntentHistory, buildTranscript, normalizeMessages } from "../conte
 import type { OpenCodeClientLike } from "../opencode/types.ts"
 import { responseData } from "../opencode/transport.ts"
 import { resolveActorContext } from "./actor-resolver.ts"
+import { resolveActionPurpose } from "./action-purpose.ts"
 import { parseCommand } from "../capability/command-parser.ts"
 import { analyzeCapability } from "../capability/bash-analyzer.ts"
 import type { EvidenceProvider } from "../evidence/provider.ts"
@@ -90,6 +91,11 @@ export async function assembleEvidence(
     (fragment) => fragment.preflightDenial !== undefined,
   )?.preflightDenial
 
+  const actionPurpose = resolveActionPurpose(request, actor.intent)
+  const purposeOk = actionPurpose.source !== "unavailable"
+  const completenessReasons = [...actor.completeness.reasons]
+  if (!purposeOk) completenessReasons.push("action purpose unavailable")
+
   return {
     request,
     directory: ctx.directory,
@@ -103,11 +109,14 @@ export async function assembleEvidence(
     actor: actor.actor,
     lineage: actor.lineage,
     intent: actor.intent,
+    actionPurpose,
     evidenceCompleteness: {
       ...actor.completeness,
+      purpose: purposeOk,
       // Capability is computed here (not in the resolver), so reflect whether
       // the analyzer produced facts for this request.
       capability: capability !== undefined,
+      reasons: completenessReasons,
     },
     ...(parsed === undefined ? {} : { parsedCommand: parsed }),
     ...(capability === undefined ? {} : { capability }),

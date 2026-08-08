@@ -1,10 +1,49 @@
 # Migration guide
 
-This guide covers upgrading to the 1.0 release line from 0.8/0.9. The 1.0
+This guide covers upgrading within the 1.x line and from 0.8/0.9. The 1.0
 release stabilizes the public configuration schema, the audit schema, and the
-OpenCode 1.x adapter contract.
+OpenCode 1.x adapter contract. 1.1 adds optional fail-closed escalation without
+changing defaults.
 
-## Upgrade behavior (existing users)
+## Upgrade to 1.1
+
+On upgrade from 1.0:
+
+- **Default behavior stays interactive.** `escalationMode` defaults to
+  `manual`, so uncertainty still escalates to a human exactly as in 1.0.
+- **Approvals no longer annotate tool results.** Allow executes with a silent
+  `once` reply; the primary agent only sees the real tool output. Denial still
+  returns a short actionable reason. Rationale remains in audit, TUI, and debug
+  logs. `annotateToolResult` stays exported as a deprecated no-op for 1.x
+  compatibility.
+- **Audit records gain optional fields** `reviewerOutcome` and
+  `escalationDisposition`. `schemaVersion` remains `2` (additive). Old readers
+  ignore the new fields.
+- **`riskPolicy.onInvalidDecision` / `onReviewerFailure` now take effect.**
+  They default to `manual` (unchanged). Set either to `deny` to harden only
+  that failure class, or set `escalationMode: "deny"` for global fail-closed.
+- **Structured decision schema stays at version 2.** Only the system prompt
+  version moves to `2.1.0` (ACTION_PURPOSE guidance).
+
+### Enabling autonomous / fail-closed mode
+
+```jsonc
+// ~/.config/opencode/permission-reviewer.jsonc  (global — do not commit deny
+// into a shared repository config unless the whole team wants fail-closed)
+{
+  "escalationMode": "deny",
+}
+```
+
+| Mode                     | Config                     | Behavior                                   |
+| ------------------------ | -------------------------- | ------------------------------------------ |
+| Interactive (default)    | `escalationMode: "manual"` | escalate → human                           |
+| Autonomous / fail-closed | `escalationMode: "deny"`   | escalate → reject with the original reason |
+
+Project config may harden `manual` → `deny` but cannot relax a trusted
+`deny` back to `manual`.
+
+## Upgrade behavior (existing users from 0.8/0.9)
 
 On upgrade, your existing setup keeps working:
 
