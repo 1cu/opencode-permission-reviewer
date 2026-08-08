@@ -136,12 +136,9 @@ once at startup; a live session keeps the previous code in memory and will not
 show a rebuilt overlay.
 
 Then ask the agent to run something safe, e.g. `printf hello`. An auto-approved
-`ask` resolves itself and the tool result is annotated:
-
-```
-[Automatic permission review approved this action once]
-- low risk, high authorization, 99% confidence: narrow, reversible, explicitly requested.
-```
+`ask` resolves itself with `once` and the tool runs normally — **without**
+injecting rationale into the agent context. Denials still return a short reason
+the agent can act on.
 
 **Cost note:** every `ask` action now spawns one extra child-session model
 call (up to `timeoutMs`). Your model spend scales with how much your policy
@@ -189,10 +186,11 @@ Every option is optional. Numeric/string options are clamped to safe bounds.
 | `policy`               | built-in default                                          | string                              | Full local override of the tenant policy text                                      |
 | `debug`                | `false`                                                   | boolean                             | Verbose logs to stderr                                                             |
 | `enforcementMode`      | `observe`                                                 | `observe` / `enforce`               | `enforce` applies declarative policy routes; `observe` audits them only            |
+| `escalationMode`       | `manual`                                                  | `manual` / `deny`                   | How final escalations are disposed (`manual` = human; `deny` = fail-closed reject) |
 | `maxSessionDepth`      | `8`                                                       | `1`–`32`                            | Parent-session lineage walk depth                                                  |
 | `maxParentSessions`    | `8`                                                       | `0`–`32`                            | Max parent sessions resolved for actor context                                     |
 | `actorProfiles`        | `{}`                                                      | name → profile map                  | Trusted agent name → profile (`read-only`, `validation`, `workspace`, …)           |
-| `riskPolicy`           | built-in conservative matrix                              | object                              | Override `allow` cells per risk level and failure modes                            |
+| `riskPolicy`           | built-in conservative matrix                              | object                              | Override `allow` cells per risk level and failure modes (`onInvalidDecision`, …)   |
 | `repositoryTrust`      | `unknown`                                                 | `trusted` / `untrusted` / `unknown` | Repository trust level used by the policy engine                                   |
 | `policyRules`          | `[]`                                                      | array                               | Declarative rules (most-restrictive wins); project rules combine with trusted ones |
 
@@ -200,13 +198,45 @@ Config is layered: built-in defaults ← global
 `~/.config/opencode/permission-reviewer.jsonc` ← project
 `.opencode/permission-reviewer.jsonc` ← inline plugin options (later wins).
 For safety, project config cannot redirect `auditPath`, grant `actorProfiles`,
-or downgrade a global `enforcementMode: "enforce"`.
+downgrade a global `enforcementMode: "enforce"`, or relax a trusted
+`escalationMode: "deny"` / failure-mode deny knob.
+
+#### Interactive vs autonomous
+
+| Mode                        | Config                     | Behavior                                                                |
+| --------------------------- | -------------------------- | ----------------------------------------------------------------------- |
+| Interactive (default / 1.0) | `escalationMode: "manual"` | Uncertainty escalates to you; OpenCode's native approval UI takes over  |
+| Autonomous / fail-closed    | `escalationMode: "deny"`   | Every final escalation becomes a reject with rationale; no human prompt |
+
+For unattended agents, set fail-closed in **global** config (not in the repo):
+
+```jsonc
+// ~/.config/opencode/permission-reviewer.jsonc
+{
+  "escalationMode": "deny",
+}
+```
+
+Optional fine-grained hardening under interactive mode (only their own cases):
+
+```jsonc
+{
+  "riskPolicy": {
+    "onInvalidDecision": "deny", // invalid structured output → reject
+    "onReviewerFailure": "deny", // timeout / transport failure → reject
+  },
+}
+```
+
+`escalationMode: "deny"` hardens every escalate path globally. Restrictive
+settings can only block more, never relax security.
 
 `audit` defaults to `true`. Each completed review appends one JSON object to
 the audit path with mode `0600` (`schemaVersion: 2`): outcome, decision source,
 rationale, risk, authorization, confidence, per-phase latency, reviewer model,
-and a bounded SSH summary. Remote commands are stored as **SHA-256**, never in
-clear text. Set `audit: false` to disable.
+optional `reviewerOutcome` / `escalationDisposition` (to distinguish an explicit
+deny from fail-closed escalate→deny), and a bounded SSH summary. Remote commands
+are stored as **SHA-256**, never in clear text. Set `audit: false` to disable.
 
 ## What you'll see
 
@@ -249,14 +279,18 @@ confidence }`.
 5. Decisions are enforced with invariants: **critical risk is never approved**,
    **high risk with low/unknown authorization is escalated**, **medium risk
    with unknown authorization is escalated**, low confidence is escalated,
-   invalid output is escalated, errors and timeouts are escalated.
-6. Approved actions get `once` (never `always`); the rationale is annotated onto
-   the tool result so the primary agent sees it. Denials return the rationale
-   as tool feedback. A manual reply that arrives mid-review **supersedes** the
-   automatic one (no double reply, no stale annotation).
+   invalid output is escalated, errors and timeouts are escalated. A single
+   enforcement boundary then disposes every internal `escalate` according to
+   `escalationMode` (`manual` → human; `deny` → reject with the original reason).
+6. Approved actions get `once` (never `always`) and execute **silently** — the
+   tool output is not annotated, so approval rationale never contaminates the
+   primary agent context (rationale still lands in audit, TUI, and debug logs).
+   Denials return a short actionable rationale as tool feedback. A manual reply
+   that arrives mid-review **supersedes** the automatic one (no double reply).
 
-Everything fails safe to **manual review**: if anything is missing, broken, or
-untrusted, the original permission request is left pending for you.
+By default everything fails safe to **manual review**. With
+`escalationMode: "deny"`, uncertainty fails closed to a reject with reason
+instead — suitable for non-interactive agents.
 
 ## Reference documentation
 
@@ -329,9 +363,9 @@ binary, blocked, or truncated evidence) remains a reviewer decision.
   `sudo rm -rf /`, `sh -c 'rm -rf /'`, `ssh host rm -rf /`) and direct
   credential-file export before any model call.
 - A manual reply that arrives while a review is in flight **supersedes** it: the
-  reviewer stops without replying, annotating, or resurrecting a UI state.
-- Approved rationales are annotated onto the tool result; denials return the
-  rationale as feedback.
+  reviewer stops without replying or resurrecting a UI state.
+- Approvals are silent to the primary agent (no tool-result annotation); denials
+  return the rationale as feedback. Rationale remains in audit/TUI/debug.
 - SSH commands and executable stdin receive bounded, untrusted action
   enrichment; enrichment never makes an approval decision on its own.
 - Long-session user intent is recovered separately from recent operational

@@ -99,7 +99,9 @@ Mitigations (the [trust boundary](#trust-boundary)):
 If the reviewer model is unavailable, returns invalid output, times out, or is
 fooled by a prompt injection, the failure is safe:
 
-- Invalid, low-confidence, or inconsistent output is escalated to the user.
+- Invalid, low-confidence, or inconsistent output is escalated (or, when
+  `escalationMode: "deny"` / the matching failure knob is set, rejected with
+  rationale).
 - Critical-risk actions cannot be approved, even if model output says `allow`.
 - High-risk actions with low/unknown authorization, and medium-risk actions
   with unknown authorization, are deterministically escalated — the model
@@ -107,7 +109,9 @@ fooled by a prompt injection, the failure is safe:
 - The emergency brake runs before the model and is never weakened by policy
   rules.
 - A manual reply that arrives mid-review **supersedes** the automatic one (no
-  double reply, no stale annotation).
+  double reply). Manual supersede is never converted by fail-closed disposition.
+- Approvals do not write rationale into the primary agent context; only denials
+  feed back a reason.
 
 ## Credential redaction
 

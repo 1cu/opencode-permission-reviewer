@@ -101,7 +101,9 @@ function mergeWithTrustBoundary(
     }
   }
 
-  // riskPolicy.allow: project can narrow cells but not widen them.
+  // riskPolicy: project can narrow allow cells and harden failure knobs, never
+  // relax a trusted deny or widen an allow cell. Partial project objects must
+  // not wipe trusted onInvalidDecision/onReviewerFailure back to defaults.
   if (typeof clamped.riskPolicy === "object" && clamped.riskPolicy !== null) {
     const trustedPolicy =
       typeof trusted.riskPolicy === "object" && trusted.riskPolicy !== null
@@ -111,6 +113,17 @@ function mergeWithTrustBoundary(
       clamped.riskPolicy as Record<string, unknown>,
       trustedPolicy,
     )
+  }
+
+  // escalationMode: project can only harden manual → deny, never relax deny →
+  // manual. Invalid values are dropped so they cannot override a trusted deny
+  // through resolveConfig's "anything but deny → manual" fallback.
+  if (clamped.escalationMode !== undefined) {
+    if (clamped.escalationMode !== "manual" && clamped.escalationMode !== "deny") {
+      delete clamped.escalationMode
+    } else if (clamped.escalationMode === "manual" && trusted.escalationMode === "deny") {
+      delete clamped.escalationMode
+    }
   }
 
   // policyRules: the project layer ADDS rules (which can only tighten — its
@@ -134,8 +147,7 @@ function mergeWithTrustBoundary(
   return { ...trusted, ...clamped }
 }
 
-/** Ensure project riskPolicy cells are subsets of the trusted baseline (project
- *  can remove authorizations from a cell but never add them). */
+/** Ensure project riskPolicy can only tighten the trusted baseline. */
 function clampRiskPolicy(
   project: Record<string, unknown>,
   trusted: Record<string, unknown>,
@@ -143,7 +155,7 @@ function clampRiskPolicy(
   const projectAllow =
     typeof project.allow === "object" && project.allow !== null
       ? (project.allow as Record<string, unknown>)
-      : {}
+      : undefined
   const trustedAllow =
     typeof trusted.allow === "object" && trusted.allow !== null
       ? (trusted.allow as Record<string, unknown>)
@@ -151,9 +163,47 @@ function clampRiskPolicy(
   const clampedAllow: Record<string, unknown> = {}
   for (const risk of ["low", "medium", "high", "critical"] as const) {
     const trustedCell = Array.isArray(trustedAllow[risk]) ? (trustedAllow[risk] as unknown[]) : []
+    if (projectAllow === undefined) {
+      // Project omitted allow entirely: keep the trusted cells.
+      clampedAllow[risk] = trustedCell
+      continue
+    }
     const projectCell = Array.isArray(projectAllow[risk]) ? (projectAllow[risk] as unknown[]) : []
-    // Intersection: project can only remove, never add.
+    // Intersection: project can only remove, never add. Missing project cell →
+    // empty intersection (most restrictive) when the project provided an allow
+    // object at all.
     clampedAllow[risk] = trustedCell.filter((auth) => projectCell.includes(auth))
   }
-  return { ...project, allow: clampedAllow }
+
+  // Start from trusted so partial project objects cannot wipe failure knobs.
+  const out: Record<string, unknown> = {
+    ...trusted,
+    allow: clampedAllow,
+  }
+
+  // Failure knobs: project may harden manual → deny only.
+  if (project.onInvalidDecision === "deny" || trusted.onInvalidDecision === "deny") {
+    out.onInvalidDecision = "deny"
+  } else if (project.onInvalidDecision === "manual" || project.onInvalidDecision === undefined) {
+    out.onInvalidDecision = trusted.onInvalidDecision ?? "manual"
+  }
+
+  if (project.onReviewerFailure === "deny" || trusted.onReviewerFailure === "deny") {
+    out.onReviewerFailure = "deny"
+  } else if (project.onReviewerFailure === "manual" || project.onReviewerFailure === undefined) {
+    out.onReviewerFailure = trusted.onReviewerFailure ?? "manual"
+  }
+
+  // minimumConfidence: project can raise but not lower.
+  const trustedMin =
+    typeof trusted.minimumConfidence === "number" && Number.isFinite(trusted.minimumConfidence)
+      ? trusted.minimumConfidence
+      : DEFAULT_RISK_POLICY.minimumConfidence
+  if (typeof project.minimumConfidence === "number" && Number.isFinite(project.minimumConfidence)) {
+    out.minimumConfidence = Math.max(trustedMin, project.minimumConfidence)
+  } else {
+    out.minimumConfidence = trustedMin
+  }
+
+  return out
 }

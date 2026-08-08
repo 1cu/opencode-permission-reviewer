@@ -1,4 +1,5 @@
 import type {
+  ActionPurpose,
   ActorContext,
   EvidenceCompleteness,
   IntentBlock,
@@ -156,6 +157,7 @@ export function buildEvidence(envelope: ReviewEnvelope, config: ReviewerConfig):
     // Actor/lineage/intent sections precede PENDING_PERMISSION so the reviewer
     // judges the request knowing who is asking and why.
     ...actorEvidenceSections(envelope, config),
+    renderActionPurpose(envelope.actionPurpose, config.maxPartChars * 2),
     `PENDING_PERMISSION\n${stableJson(
       {
         permission: request.permission,
@@ -180,6 +182,20 @@ export function buildEvidence(envelope: ReviewEnvelope, config: ReviewerConfig):
       config.maxEnrichmentChars +
       config.maxIntentChars,
   )
+}
+
+function renderActionPurpose(purpose: ActionPurpose | undefined, max: number): string {
+  if (purpose === undefined) {
+    return `ACTION_PURPOSE\n${stableJson({ source: "unavailable", confidence: "unknown" }, max)}`
+  }
+  return `ACTION_PURPOSE\n${stableJson(
+    {
+      source: purpose.source,
+      confidence: purpose.confidence,
+      ...(purpose.text === undefined ? {} : { text: purpose.text }),
+    },
+    max,
+  )}`
 }
 
 // --- policy summary section -------------------------------------------------
@@ -257,6 +273,7 @@ function renderCompleteness(c: EvidenceCompleteness, max: number): string {
       lineage: c.lineage,
       directUserIntent: c.directUserIntent,
       delegatedTask: c.delegatedTask,
+      purpose: c.purpose,
       capability: c.capability,
       ...(c.reasons.length === 0 ? {} : { reasons: c.reasons }),
     },

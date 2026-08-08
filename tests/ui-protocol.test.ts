@@ -25,9 +25,23 @@ describe("TUI status protocol", () => {
         emittedAt: 123,
         reason: "Concrete reason",
         decision: decision(phase === "denied" ? "deny" : phase === "manual" ? "escalate" : "allow"),
+        ...(phase === "denied" ? { escalationDisposition: "deny" as const } : {}),
       })
       expect(decodeUiStatus(encodeUiStatus(status))).toEqual(status)
+      if (phase === "denied") {
+        expect(status.escalationDisposition).toBe("deny")
+      }
     }
+  })
+
+  test("rejects invalid escalationDisposition values", () => {
+    const status = createUiStatus(request(), "denied", {
+      ...options,
+      escalationDisposition: "deny",
+    })
+    const payload = { ...status, escalationDisposition: "sometimes" }
+    const encoded = `${UI_COMMAND_PREFIX}${Buffer.from(JSON.stringify(payload), "utf8").toString("base64url")}`
+    expect(decodeUiStatus(encoded)).toBeUndefined()
   })
 
   test("rejects unrelated, malformed, oversized, and structurally invalid commands", () => {

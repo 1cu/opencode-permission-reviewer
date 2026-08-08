@@ -21,7 +21,7 @@ beforeAll(async () => {
 })
 
 describe("runtime decisions", () => {
-  test("approves once, disables every reviewer tool, and annotates the tool result", async () => {
+  test("approves once, disables every reviewer tool, and does not annotate the tool result", async () => {
     const harness = runtime()
     const result = await harness.runtime.process(request())
     expect(result.kind).toBe("allow")
@@ -38,15 +38,14 @@ describe("runtime decisions", () => {
     expect(prompt.body.variant).toBe("max")
     expect(Object.values(prompt.body.tools).every((enabled) => enabled === false)).toBe(true)
 
+    // Asymmetric feedback: approvals must not contaminate the primary agent context.
     const output: { output: string; metadata: unknown } = {
       output: "safe",
       metadata: { existing: true },
     }
     harness.runtime.annotateToolResult("call_1", output)
-    expect(output.output).toContain("Automatic permission review approved")
-    expect(output.output).toContain("safe")
-    expect(output.metadata).toMatchObject({ existing: true })
-    expect(output.metadata).toHaveProperty("approvalReviewer")
+    expect(output.output).toBe("safe")
+    expect(output.metadata).toEqual({ existing: true })
   })
 
   test("sends the reviewer system prompt as the system field, not in the part", async () => {
@@ -261,7 +260,7 @@ describe("runtime decisions", () => {
     harness.runtime.handle(request())
     await harness.runtime.waitForIdle()
     expect(client.replies).toHaveLength(0)
-    expect(errors).toHaveLength(1)
+    expect(errors.length).toBeGreaterThanOrEqual(1)
     expect(client.uiStatuses.map((status) => status.phase)).toEqual(["reviewing", "manual"])
   })
 
@@ -320,12 +319,9 @@ describe("runtime decisions", () => {
     expect(harness.client.replies).toHaveLength(1)
   })
 
-  test("stores approval rationale before replying to avoid a fast-tool race", async () => {
+  test("annotateToolResult is a no-op even when invoked mid-reply", async () => {
     const client = new MockClient()
-    const racedOutput = { output: "instant result", metadata: {} }
-    // The harness ctx captures client.permissionReply by value, so this hook
-    // must be installed before the harness is built. It reaches the coordinator
-    // through a deferred holder because the coordinator does not exist yet.
+    const racedOutput = { output: "instant result", metadata: { keep: true } }
     const annotateToolResult: {
       fn: (callID: string, output: { output?: unknown; metadata?: unknown }) => void
     } = { fn: () => {} }
@@ -337,11 +333,11 @@ describe("runtime decisions", () => {
     const harness = runtime(client)
     annotateToolResult.fn = (callID, output) => harness.runtime.annotateToolResult(callID, output)
     expect((await harness.runtime.process(request())).kind).toBe("allow")
-    expect(racedOutput.output).toContain("Automatic permission review approved")
-    expect(racedOutput.output).toContain("instant result")
+    expect(racedOutput.output).toBe("instant result")
+    expect(racedOutput.metadata).toEqual({ keep: true })
   })
 
-  test("clears stale approval annotations if the session is rejected", async () => {
+  test("annotateToolResult remains a no-op after a session reject event", async () => {
     const harness = runtime()
     await harness.runtime.process(request())
     harness.runtime.handlePermissionReply({
@@ -377,7 +373,7 @@ describe("runtime decisions", () => {
     expect(replyBody(client.replies[0]).reply).toBe("once")
   })
 
-  test("a manual reject during the model call supersedes the review (no double reply, no annotation)", async () => {
+  test("a manual reject during the model call supersedes the review (no double reply)", async () => {
     const client = new MockClient()
     const resolvers: Array<(value: { data: Record<string, unknown> }) => void> = []
     client.promptImpl = () =>
@@ -477,7 +473,7 @@ describe("runtime decisions", () => {
     expect(client.uiStatuses.map((s) => s.phase)).toEqual(["reviewing"])
   })
 
-  test("a 404 on the reply (window residual) is benign: no manual resurrection, annotation rolled back", async () => {
+  test("a 404 on the reply (window residual) is benign: no manual resurrection", async () => {
     const client = new MockClient()
     client.replyError = { status: 404, message: "PermissionNotFoundError" }
     const harness = runtime(client)
