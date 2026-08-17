@@ -586,4 +586,79 @@ describe("event boundary", () => {
     })
     expect(client.deletes).toHaveLength(1)
   })
+
+  test("text mode sends a text format body and approves from parsed JSON", async () => {
+    const harness = runtime(new MockClient(), {
+      outputFormat: "text",
+      model: "opencode-go/deepseek-v4-flash",
+      variant: "high",
+    })
+    ;(harness.client as MockClient).nextText = JSON.stringify(decision("allow"))
+    const result = await harness.runtime.process(request())
+    expect(result.kind).toBe("allow")
+    expect(replyBody(harness.client.replies[0]).reply).toBe("once")
+
+    const prompt = harness.client.prompts[0] as {
+      body: { format: unknown; model: unknown; variant: string }
+    }
+    expect(prompt.body.format).toEqual({ type: "text" })
+    expect(prompt.body.model).toEqual({
+      providerID: "opencode-go",
+      modelID: "deepseek-v4-flash",
+    })
+    expect(prompt.body.variant).toBe("high")
+  })
+
+  test("text mode parses a decision from fenced JSON with prose", async () => {
+    const harness = runtime(new MockClient(), { outputFormat: "text" })
+    ;(harness.client as MockClient).nextText =
+      "Here is the review:\n```json\n" + JSON.stringify(decision("allow"), null, 2) + "\n```\nDone."
+    const result = await harness.runtime.process(request())
+    expect(result.kind).toBe("allow")
+    expect(replyBody(harness.client.replies[0]).reply).toBe("once")
+  })
+
+  test("text mode embeds the decision schema in the prompt part", async () => {
+    const harness = runtime(new MockClient(), { outputFormat: "text" })
+    ;(harness.client as MockClient).nextText = JSON.stringify(decision("allow"))
+    await harness.runtime.process(request())
+    const prompt = harness.client.prompts[0] as {
+      body: { parts: Array<{ type: string; text: string }> }
+    }
+    const part = prompt.body.parts[0]!.text
+    expect(part).toContain("# Output format")
+    expect(part).toContain('"outcome"')
+    expect(part).toContain('"risk_level"')
+    expect(part).toContain('"scope_alignment"')
+    expect(part).toContain("misaligned")
+  })
+
+  test("text mode with unparseable output escalates with no reply", async () => {
+    const harness = runtime(new MockClient(), { outputFormat: "text" })
+    ;(harness.client as MockClient).nextText = "I cannot provide a structured decision."
+    const result = await harness.runtime.process(request())
+    expect(result.kind).toBe("escalate")
+    expect(result.reason).toMatch(/unparseable text output/i)
+    expect(harness.client.replies).toHaveLength(0)
+    expect(harness.client.uiStatuses.map((status) => status.phase)).toEqual(["reviewing", "manual"])
+  })
+
+  test("text mode with no text parts escalates", async () => {
+    const harness = runtime(new MockClient(), { outputFormat: "text" })
+    ;(harness.client as MockClient).nextText = "" // becomes parts with empty text
+    const result = await harness.runtime.process(request())
+    expect(result.kind).toBe("escalate")
+    expect(harness.client.replies).toHaveLength(0)
+  })
+
+  test("default mode still sends the json_schema structured-output format", async () => {
+    const harness = runtime()
+    await harness.runtime.process(request())
+    const prompt = harness.client.prompts[0] as { body: { format: unknown } }
+    expect(prompt.body.format).toMatchObject({
+      type: "json_schema",
+      retryCount: 2,
+      schema: { type: "object", additionalProperties: false },
+    })
+  })
 })

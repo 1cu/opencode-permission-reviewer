@@ -13,6 +13,22 @@ export function extractStructured(response: Record<string, unknown>): unknown {
   return (info as Record<string, unknown>).structured
 }
 
+/** Collect the plain-text output parts from a text-format reviewer response. */
+export function extractText(response: Record<string, unknown>): string | undefined {
+  const parts = response.parts
+  if (!Array.isArray(parts)) return
+  const chunks: string[] = []
+  for (const part of parts) {
+    if (typeof part !== "object" || part === null) continue
+    const record = part as Record<string, unknown>
+    if (record.type !== "text") continue
+    if (typeof record.text !== "string") continue
+    chunks.push(record.text)
+  }
+  if (chunks.length === 0) return
+  return chunks.join("\n")
+}
+
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   return Promise.race([

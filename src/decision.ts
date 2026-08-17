@@ -16,6 +16,74 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+/**
+ * Locate and parse the first valid JSON object embedded in free-form model
+ * text. Handles Markdown code fences, surrounding prose, and multiple candidate
+ * objects. Returns the parsed value or `undefined` when nothing parses.
+ *
+ * This is deliberately best-effort: any output we cannot confidently parse
+ * simply fails `parseDecision` (and therefore escalates) downstream, so a
+ * mis-extraction can never produce an auto-approval.
+ */
+export function extractJsonFromText(text: string): unknown {
+  const trimmed = text.trim()
+  if (trimmed.length === 0) return
+
+  let body = trimmed
+  // Prefer the contents of a fenced block (``` or ```json) if present.
+  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fenceMatch) body = fenceMatch[1]!.trim()
+
+  // Collect top-level balanced `{ ... }` spans, ignoring braces inside quoted
+  // strings and escaped quotes.
+  const candidates: string[] = []
+  let depth = 0
+  let start = -1
+  let inString = false
+  let escaped = false
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]!
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === "\\") escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+      continue
+    }
+    if (ch === "{") {
+      if (depth === 0) start = i
+      depth += 1
+    } else if (ch === "}") {
+      depth -= 1
+      if (depth === 0 && start !== -1) candidates.push(body.slice(start, i + 1))
+    }
+  }
+
+  // Try longest-first so a nested/outer object is preferred, then fall back to
+  // the whole (unbalanced) text — any failure is caught by parseDecision.
+  const ordered = [...candidates].sort((a, b) => b.length - a.length)
+  ordered.push(trimmed)
+  for (const candidate of ordered) {
+    try {
+      const parsed = JSON.parse(candidate)
+      // Only a plain object is a candidate decision; arrays/primitives/`null`
+      // are rejected so parseDecision never has to special-case them.
+      if (isRecord(parsed)) return parsed
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return
+}
+
+/** Parse a plain-text reviewer response into a valid decision, if possible. */
+export function parseDecisionFromText(text: string): ReviewDecision | undefined {
+  return parseDecision(extractJsonFromText(text))
+}
+
 export function parseDecision(value: unknown): ReviewDecision | undefined {
   if (!isRecord(value)) return
   // The current schema is version 2. A model output that omits the version
