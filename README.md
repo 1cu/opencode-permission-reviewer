@@ -186,10 +186,20 @@ needs the flag set identically in both `opencode.json` and `tui.json`:
 ```
 
 Text mode is **safe but noisier**: without host-side schema enforcement there
-is no auto-retry, so unparseable or malformed output escalates to a human rather
-than being auto-approved. Every parsed decision still passes the same strict
-`parseDecision` validation and `enforceDecision` invariants (critical risk is
-never approved, etc.), so text mode can never weaken safety.
+is no auto-retry, so malformed output escalates to a human rather than being
+auto-approved. Parsing is deliberately strict and fail-closed: the entire
+response must be exactly one JSON object (optionally wrapped in a single
+Markdown code fence). Prose around the object, multiple objects, multiple
+fences, or any other ambiguity escalates to a human — the parser never guesses
+which candidate the model meant. Every parsed decision still passes the same
+strict `parseDecision` validation and `enforceDecision` invariants (critical
+risk is never approved, etc.), so text mode cannot approve anything that
+structured mode would not.
+
+One caveat applies to any output format: the deterministic gates check the
+decision's _consistency_, not its semantic correctness. A reviewer model that
+misclassifies an unsafe action as low risk can produce an unsafe `allow` in
+either mode, so pick as strong a reviewer model as your budget allows.
 
 ### All configuration options
 

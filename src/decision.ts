@@ -17,66 +17,37 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Locate and parse the first valid JSON object embedded in free-form model
- * text. Handles Markdown code fences, surrounding prose, and multiple candidate
- * objects. Returns the parsed value or `undefined` when nothing parses.
- *
- * This is deliberately best-effort: any output we cannot confidently parse
- * simply fails `parseDecision` (and therefore escalates) downstream, so a
- * mis-extraction can never produce an auto-approval.
+ * Parse the reviewer's plain-text response under a strict, fail-closed policy:
+ * the entire response must be exactly one JSON object, optionally wrapped in a
+ * single Markdown code fence that encloses the whole response. Prose around
+ * the object, multiple objects, multiple fences, or any trailing content make
+ * the response ambiguous; ambiguity returns `undefined` so the request
+ * escalates to a human. This component authorizes tool execution: when the
+ * model's output is ambiguous it must never guess which candidate was meant.
  */
 export function extractJsonFromText(text: string): unknown {
   const trimmed = text.trim()
   if (trimmed.length === 0) return
 
   let body = trimmed
-  // Prefer the contents of a fenced block (``` or ```json) if present.
-  const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (fenceMatch) body = fenceMatch[1]!.trim()
-
-  // Collect top-level balanced `{ ... }` spans, ignoring braces inside quoted
-  // strings and escaped quotes.
-  const candidates: string[] = []
-  let depth = 0
-  let start = -1
-  let inString = false
-  let escaped = false
-  for (let i = 0; i < body.length; i++) {
-    const ch = body[i]!
-    if (inString) {
-      if (escaped) escaped = false
-      else if (ch === "\\") escaped = true
-      else if (ch === '"') inString = false
-      continue
-    }
-    if (ch === '"') {
-      inString = true
-      continue
-    }
-    if (ch === "{") {
-      if (depth === 0) start = i
-      depth += 1
-    } else if (ch === "}") {
-      depth -= 1
-      if (depth === 0 && start !== -1) candidates.push(body.slice(start, i + 1))
-    }
+  // Accept one fence wrapping the ENTIRE response (``` or ```json) because
+  // many models fence JSON even when told not to. The closing fence must be
+  // the last thing in the response; anything before or after it rejects the
+  // whole response instead of salvaging a candidate from inside.
+  if (trimmed.startsWith("```")) {
+    const fenceMatch = trimmed.match(/^```[^\n]*\n?([\s\S]*?)\n?```\s*$/)
+    if (!fenceMatch) return
+    body = fenceMatch[1]!.trim()
   }
 
-  // Try longest-first so a nested/outer object is preferred, then fall back to
-  // the whole (unbalanced) text — any failure is caught by parseDecision.
-  const ordered = [...candidates].sort((a, b) => b.length - a.length)
-  ordered.push(trimmed)
-  for (const candidate of ordered) {
-    try {
-      const parsed = JSON.parse(candidate)
-      // Only a plain object is a candidate decision; arrays/primitives/`null`
-      // are rejected so parseDecision never has to special-case them.
-      if (isRecord(parsed)) return parsed
-    } catch {
-      // Try the next candidate.
-    }
+  try {
+    const parsed = JSON.parse(body)
+    // Only a plain object is a candidate decision; arrays/primitives/`null`
+    // are rejected so parseDecision never has to special-case them.
+    return isRecord(parsed) ? parsed : undefined
+  } catch {
+    return
   }
-  return
 }
 
 /** Parse a plain-text reviewer response into a valid decision, if possible. */

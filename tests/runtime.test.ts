@@ -609,13 +609,23 @@ describe("event boundary", () => {
     expect(prompt.body.variant).toBe("high")
   })
 
-  test("text mode parses a decision from fenced JSON with prose", async () => {
+  test("text mode with a fence plus prose escalates (ambiguous response)", async () => {
     const harness = runtime(new MockClient(), { outputFormat: "text" })
     ;(harness.client as MockClient).nextText =
       "Here is the review:\n```json\n" + JSON.stringify(decision("allow"), null, 2) + "\n```\nDone."
     const result = await harness.runtime.process(request())
-    expect(result.kind).toBe("allow")
-    expect(replyBody(harness.client.replies[0]).reply).toBe("once")
+    expect(result.kind).toBe("escalate")
+    expect(result.reason).toMatch(/unparseable text output/i)
+    expect(harness.client.replies).toHaveLength(0)
+  })
+
+  test("text mode with two conflicting decisions escalates (never picks one)", async () => {
+    const harness = runtime(new MockClient(), { outputFormat: "text" })
+    ;(harness.client as MockClient).nextText =
+      JSON.stringify(decision("allow")) + "\nFinal decision:\n" + JSON.stringify(decision("deny"))
+    const result = await harness.runtime.process(request())
+    expect(result.kind).toBe("escalate")
+    expect(harness.client.replies).toHaveLength(0)
   })
 
   test("text mode embeds the decision schema in the prompt part", async () => {
