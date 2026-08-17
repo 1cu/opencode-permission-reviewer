@@ -52,6 +52,8 @@ export class MockClient implements OpenCodeClientLike {
   readonly replies: unknown[] = []
   readonly uiStatuses: ReviewUiStatus[] = []
   nextStructured: unknown = decision("allow")
+  /** When set, `session.prompt` returns text parts instead of `info.structured`. */
+  nextText: string | undefined
   promptImpl?: (options: unknown) => Promise<{ data?: Record<string, unknown>; error?: unknown }>
   messagesImpl?: (options: unknown) => Promise<{ data?: unknown; error?: unknown }>
   messageData: unknown = [
@@ -100,6 +102,14 @@ export class MockClient implements OpenCodeClientLike {
         this.prompts.push(options)
         if (this.promptImpl) return this.promptImpl(options)
         if (this.promptError !== undefined) return { error: this.promptError }
+        if (this.nextText !== undefined) {
+          return {
+            data: {
+              info: { id: "msg_review", role: "assistant" },
+              parts: [{ type: "text", text: this.nextText }],
+            },
+          }
+        }
         return { data: { info: { structured: this.nextStructured } } }
       },
       delete: async (options: unknown) => {

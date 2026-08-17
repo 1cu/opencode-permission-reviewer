@@ -109,9 +109,15 @@ export interface PolicyTrace {
   mode: "observe" | "enforce"
 }
 
+export type ReviewerOutputFormat = "json_schema" | "text"
+
 export interface ReviewerConfig {
   model: string
   variant: string
+  /** How the reviewer model returns its decision. `json_schema` requests
+   *  OpenCode's structured-output format (requires provider support); `text`
+   *  asks the model to emit JSON in plain text and parses it locally. */
+  outputFormat: ReviewerOutputFormat
   timeoutMs: number
   maxContextChars: number
   maxPartChars: number

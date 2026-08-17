@@ -180,6 +180,15 @@ describe("characterization gaps (baseline prereq)", () => {
     }
   })
 
+  test("text mode with a response lacking text parts escalates", async () => {
+    const client = new MockClient()
+    client.promptImpl = async () => ({ data: { info: { id: "msg_review", role: "assistant" } } })
+    const result = await runtime(client, { outputFormat: "text" }).runtime.process(request())
+    expect(result.kind).toBe("escalate")
+    expect(result.reason).toMatch(/unparseable text output/i)
+    expect(client.replies).toHaveLength(0)
+  })
+
   test("low structured output still cleans up review session", async () => {
     const client = new MockClient()
     client.nextStructured = decision("allow", { confidence: 0.1 })

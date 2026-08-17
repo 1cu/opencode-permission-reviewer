@@ -5,7 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] - 2026-08-18
+
+### Added
+
+- New `outputFormat` config option (`json_schema` | `text`, default
+  `json_schema`). `text` lets reviewer models that do not support OpenCode's
+  `json_schema` structured-output format (e.g. `opencode-go/deepseek-v4-flash`)
+  be used: the model emits its decision as plain JSON, which the plugin parses
+  locally through the same strict `parseDecision` validation and
+  `enforceDecision` invariants. Text-mode parsing is fail-closed: the response
+  must be exactly one JSON object (optionally in a single code fence); any
+  ambiguity escalates to a human. Text mode is safe but produces more
+  escalations than structured output.
 
 ## [1.1.1] - 2026-08-08
 
