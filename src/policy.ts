@@ -1,4 +1,6 @@
+import { DECISION_SCHEMA } from "./decision.ts"
 import { redactSecrets } from "./redact.ts"
+import type { ReviewerOutputFormat } from "./types.ts"
 
 /*
  * Adapted from the OpenAI Codex Guardian auto-review policy and policy
@@ -127,7 +129,24 @@ Follow the tenant policy supplied in the user message exactly; it may be stricte
  * barrier, so a credential a user accidentally pastes into their custom policy
  * text never reaches the reviewer provider.
  */
-export function buildReviewerPrompt(tenantPolicy: string, evidence: string): string {
+export function buildReviewerPrompt(
+  tenantPolicy: string,
+  evidence: string,
+  outputFormat: ReviewerOutputFormat = "json_schema",
+): string {
+  // In text mode there is no host-side `format.schema` to carry the decision
+  // shape, so the model must see the exact field names/enums in the prompt.
+  const outputDirective =
+    outputFormat === "text"
+      ? `\n
+# Output format
+Return exactly one JSON object conforming to this schema. Do not include Markdown
+code fences, prose, or commentary around it — only the JSON object.
+
+\`\`\`json
+${JSON.stringify(DECISION_SCHEMA, null, 2)}
+\`\`\``
+      : ""
   return `# Tenant policy
 ${redactSecrets(tenantPolicy)}
 
@@ -135,6 +154,6 @@ ${redactSecrets(tenantPolicy)}
 <approval_evidence>
 ${evidence}
 </approval_evidence>
-
+${outputDirective}
 Return only the required structured decision.`
 }

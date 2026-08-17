@@ -16,6 +16,45 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+/**
+ * Parse the reviewer's plain-text response under a strict, fail-closed policy:
+ * the entire response must be exactly one JSON object, optionally wrapped in a
+ * single Markdown code fence that encloses the whole response. Prose around
+ * the object, multiple objects, multiple fences, or any trailing content make
+ * the response ambiguous; ambiguity returns `undefined` so the request
+ * escalates to a human. This component authorizes tool execution: when the
+ * model's output is ambiguous it must never guess which candidate was meant.
+ */
+export function extractJsonFromText(text: string): unknown {
+  const trimmed = text.trim()
+  if (trimmed.length === 0) return
+
+  let body = trimmed
+  // Accept one fence wrapping the ENTIRE response (``` or ```json) because
+  // many models fence JSON even when told not to. The closing fence must be
+  // the last thing in the response; anything before or after it rejects the
+  // whole response instead of salvaging a candidate from inside.
+  if (trimmed.startsWith("```")) {
+    const fenceMatch = trimmed.match(/^```[^\n]*\n?([\s\S]*?)\n?```\s*$/)
+    if (!fenceMatch) return
+    body = fenceMatch[1]!.trim()
+  }
+
+  try {
+    const parsed = JSON.parse(body)
+    // Only a plain object is a candidate decision; arrays/primitives/`null`
+    // are rejected so parseDecision never has to special-case them.
+    return isRecord(parsed) ? parsed : undefined
+  } catch {
+    return
+  }
+}
+
+/** Parse a plain-text reviewer response into a valid decision, if possible. */
+export function parseDecisionFromText(text: string): ReviewDecision | undefined {
+  return parseDecision(extractJsonFromText(text))
+}
+
 export function parseDecision(value: unknown): ReviewDecision | undefined {
   if (!isRecord(value)) return
   // The current schema is version 2. A model output that omits the version

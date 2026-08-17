@@ -176,6 +176,15 @@ describe("configuration", () => {
   test("defaults to Luna at maximum reasoning", () => {
     expect(resolveConfig(undefined).model).toBe("openai/gpt-5.6-luna")
     expect(resolveConfig(undefined).variant).toBe("max")
+    expect(resolveConfig(undefined).outputFormat).toBe("json_schema")
+  })
+
+  test("resolves the output format", () => {
+    expect(resolveConfig({ outputFormat: "text" }).outputFormat).toBe("text")
+    expect(resolveConfig({ outputFormat: "json_schema" }).outputFormat).toBe("json_schema")
+    // Invalid values fall back to the safe structured-output default.
+    expect(resolveConfig({ outputFormat: "bogus" }).outputFormat).toBe("json_schema")
+    expect(resolveConfig({ outputFormat: 42 }).outputFormat).toBe("json_schema")
   })
 
   test("bounds unsafe numeric options", () => {

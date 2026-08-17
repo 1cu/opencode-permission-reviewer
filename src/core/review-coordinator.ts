@@ -18,6 +18,7 @@ import {
   DECISION_SCHEMA_VERSION,
   enforceDecision,
   parseDecision,
+  parseDecisionFromText,
 } from "../decision.ts"
 import {
   DEFAULT_TENANT_POLICY,
@@ -34,6 +35,7 @@ import { redactSecrets } from "../redact.ts"
 import type { RuntimeContext } from "../opencode/types.ts"
 import {
   extractStructured,
+  extractText,
   isAlreadyResolvedError,
   responseData,
   withTimeout,
@@ -582,7 +584,11 @@ export class ReviewCoordinator {
       )
       const tools = Object.fromEntries(toolIDs.map((id) => [id, false]))
       const policy = this.config.policy ?? DEFAULT_TENANT_POLICY
-      const prompt = buildReviewerPrompt(policy, buildEvidence(envelope, this.config))
+      const prompt = buildReviewerPrompt(
+        policy,
+        buildEvidence(envelope, this.config),
+        this.config.outputFormat,
+      )
 
       const reviewerStart = performance.now()
       const response = await withTimeout(
@@ -597,11 +603,14 @@ export class ReviewCoordinator {
             // in the system prompt so they carry system-level priority over the
             // untrusted evidence passed in the part below.
             system: REVIEWER_SYSTEM_PROMPT,
-            format: {
-              type: "json_schema",
-              schema: DECISION_SCHEMA,
-              retryCount: 2,
-            },
+            format:
+              this.config.outputFormat === "text"
+                ? { type: "text" }
+                : {
+                    type: "json_schema",
+                    schema: DECISION_SCHEMA,
+                    retryCount: 2,
+                  },
             parts: [{ type: "text", text: prompt }],
           },
         }),
@@ -611,12 +620,18 @@ export class ReviewCoordinator {
       const currentTimings = this.timingsByRequest.get(envelope.request.id) ?? {}
       this.timingsByRequest.set(envelope.request.id, { ...currentTimings, reviewerMs })
       const data = responseData(response, "session.prompt")
-      const parsed = parseDecision(extractStructured(data))
+      const parsed =
+        this.config.outputFormat === "text"
+          ? parseDecisionFromText(extractText(data) ?? "")
+          : parseDecision(extractStructured(data))
       if (!parsed) {
         return applyEscalationDisposition(
           {
             kind: "escalate",
-            reason: "Reviewer returned missing or invalid structured output.",
+            reason:
+              this.config.outputFormat === "text"
+                ? "Reviewer returned missing, invalid, or unparseable text output."
+                : "Reviewer returned missing or invalid structured output.",
             reviewSessionID,
             decisionSource: "failure-safe",
           },

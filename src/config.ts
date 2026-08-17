@@ -26,6 +26,7 @@ export const DEFAULT_RISK_POLICY: RiskPolicy = {
 export const DEFAULT_CONFIG: ReviewerConfig = {
   model: "openai/gpt-5.6-luna",
   variant: "max",
+  outputFormat: "json_schema",
   timeoutMs: 120_000,
   maxContextChars: 32_000,
   maxPartChars: 8_000,
@@ -202,6 +203,7 @@ export function resolveConfig(options: Record<string, unknown> | undefined): Rev
     typeof source.variant === "string" && source.variant.length > 0
       ? source.variant
       : DEFAULT_CONFIG.variant
+  const outputFormat = source.outputFormat === "text" ? "text" : "json_schema"
   const policy =
     typeof source.policy === "string" && source.policy.trim().length > 0
       ? source.policy.trim()
@@ -214,6 +216,7 @@ export function resolveConfig(options: Record<string, unknown> | undefined): Rev
   return {
     model,
     variant,
+    outputFormat,
     timeoutMs: boundedInteger(source.timeoutMs, DEFAULT_CONFIG.timeoutMs, 5_000, 600_000),
     maxContextChars: boundedInteger(
       source.maxContextChars,
